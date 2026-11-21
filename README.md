@@ -15,7 +15,6 @@ npm run preview  # dist/ のローカル確認
 ## 構成
 
 - `public/data/`: レール（63種）・車両（10種）・情景・橋脚・手本コース（11本）の JSON / FBX データ
-- `public/room/`: 部屋の家具モデル（Kenney Furniture Kit 2.0 / CC0）
 - `src/`: Three.js ランタイム・配置・重なり判定・経路構築・列車走行・UI
 
 ## 操作
@@ -49,4 +48,3 @@ GitHub リポジトリの **Settings → Pages → Source** で `Deploy from a b
 ## クレジット
 
 - 3D 描画: [Three.js](https://threejs.org/) (MIT License)
-- 部屋家具モデル: [Kenney Furniture Kit 2.0](https://kenney.nl/assets/furniture-kit) (CC0 1.0)

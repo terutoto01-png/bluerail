@@ -248,8 +248,6 @@ function stepRun(dt: number) {
 renderer.setAnimationLoop(() => {
   tick(Math.min(clock.getDelta(), 0.1));
   scene.updateMatrixWorld();
-  scenery?.updateWalls(camera.position);
-  scenery?.updateProps(camera.position, controls.target);
   if (rig.mode === "free") {
     controls.update();
     clampFocus();
@@ -1773,11 +1771,10 @@ function fitShadow() {
   if (!box.isEmpty()) scenery.lights.fitShadow(box);
 }
 
-/** 部屋と空だけを撮って、レールの艶に映り込ませる環境にする（Unity の ReflectionProbe、強さ 0.6） */
+/** 空と床だけを撮って、レールの艶に映り込ませる環境にする（強さ 0.6） */
 function bakeEnvironment() {
   const pmrem = new THREE.PMREMGenerator(renderer);
   world.visible = false;
-  scenery.updateWalls(new THREE.Vector3(0, 7, 0));
   const target = pmrem.fromScene(scene, 0, 1, 1500, { size: 128, position: new THREE.Vector3(0, 7, 0) });
   world.visible = true;
   setSharedEnvironment(target.texture);
@@ -1786,9 +1783,13 @@ function bakeEnvironment() {
 
 async function main() {
   const t0 = performance.now();
-  // メタデータ束（1リクエスト）と部屋の GLB 群（並列プリロード）を同時に開始する
-  const sceneryPromise = buildScenery(scene, base);
-  const bundle = await loadBundle(base);
+  // 背景（床・マット・空・光）は外部ファイルなしで即座に組み、bundle.json 到着後すぐコースを読む
+  const bundlePromise = loadBundle(base);
+  scenery = buildScenery(scene);
+  bakeEnvironment();
+  const tScenery = performance.now();
+
+  const bundle = await bundlePromise;
   const tBundle = performance.now();
 
   propsLayer.setDefs(bundle.scenery);
@@ -1802,10 +1803,6 @@ async function main() {
     else console.log(`経路の検算 OK（${catalog.size} 種）`);
     if (skipped.length) console.log(`対象外の道（焼き込み）${skipped.length} 本: ${skipped.join(", ")}`);
   }
-
-  scenery = await sceneryPromise;
-  const tScenery = performance.now();
-  bakeEnvironment();
 
   const thumb = createThumbnailer(renderer, loadModel);
   shelf = new Shelf({
@@ -2060,7 +2057,7 @@ async function main() {
     startMs: Math.round(t0),
     bundleMs: Math.round(tBundle - t0),
     sceneryMs: Math.round(tScenery - t0),
-    courseMs: Math.round(tReady - tScenery),
+    courseMs: Math.round(tReady - Math.max(tScenery, tBundle)),
     readyMs: Math.round(tReady),
   };
   const loading = document.getElementById("loading");
