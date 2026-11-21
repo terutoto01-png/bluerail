@@ -194,7 +194,7 @@
 
   /* ミニマップ（左下、PC と iPad 以上の幅で表示） */
   #minimap{left:calc(14px + var(--safe-l));bottom:calc(104px + var(--safe-b));padding:6px 8px 8px;display:flex;flex-direction:column;gap:2px;z-index:10}
-  body.shelf-open #minimap{bottom:calc(230px + var(--safe-b))}
+  body.shelf-open #minimap{bottom:calc(252px + var(--safe-b))}
   body.drive #minimap{bottom:calc(92px + var(--safe-b))}
   #minimap span{font-size:12px;color:var(--secondary)}
   #minimap canvas{display:block;border-radius:6px}
@@ -202,15 +202,16 @@
   /* 案内とトースト（上部中央の下、ドックと重ならない位置） */
   #prompt{
     position:fixed;left:50%;top:calc(68px + var(--safe-t));transform:translateX(-50%);
-    background:rgba(39,58,53,.9);color:var(--surface);padding:7px 14px;border-radius:999px;
-    font-size:14px;pointer-events:none;display:none;max-width:calc(100vw - 24px);text-align:center;z-index:15;
+    background:rgba(39,58,53,.9);color:var(--surface);padding:7px 14px;border-radius:12px;
+    font-size:14px;line-height:1.35;pointer-events:none;display:none;
+    width:max-content;max-width:calc(100vw - 24px - var(--safe-l) - var(--safe-r));text-align:center;z-index:15;
   }
   body.drive #prompt{display:none !important}
   #toast{
     position:fixed;left:50%;top:calc(112px + var(--safe-t));transform:translateX(-50%);
     background:var(--ink);color:var(--surface);padding:9px 16px;border-radius:10px;
-    font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;
-    max-width:calc(100vw - 28px);text-align:center;z-index:50;
+    font-size:14px;line-height:1.35;opacity:0;pointer-events:none;transition:opacity .2s;
+    width:max-content;max-width:calc(100vw - 28px - var(--safe-l) - var(--safe-r));text-align:center;z-index:50;
   }
   #toast.show{opacity:1}
 
@@ -220,6 +221,12 @@
   #loading .box{background:var(--surface);color:var(--ink);padding:20px 28px;border-radius:12px;box-shadow:0 4px 20px var(--shadow);text-align:center;max-width:min(420px,calc(100vw - 32px))}
   #loading .title{font-weight:700;font-size:20px;margin-bottom:6px}
   #loading .msg{font-size:15px;color:var(--secondary)}
+
+  /* iPad 縦・中幅以下: キー表記とモード文字を省き、上部バー同士の重なりを防ぐ */
+  @media (max-width:1024px){
+    .key{display:none}
+    #topLeft .mode{display:none}
+  }
 
   /* タッチ端末（スマホ・iPad）共通: キー表記を隠し、押しやすい寸法を確保 */
   @media (pointer:coarse){

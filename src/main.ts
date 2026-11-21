@@ -54,7 +54,7 @@ controls.maxPolarAngle = THREE.MathUtils.degToRad(90 - 10);
 const rig = new CameraRig(camera, controls);
 
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 let scenery: Scenery;
 
 // Unity は左手系。データは Unity の座標のまま持ち、描くときだけ x を反転する
@@ -301,7 +301,7 @@ function updateHud(now: number) {
       : selectedEnd && !selectedKind
         ? "下のバーからつなぐ部品を選ぶ"
         : open.length === 0 && selectedPiece === null && !selectedKind
-          ? "線路を" + verb + "して「左／右へ分ける」か削除で編集できます"
+          ? "線路を" + verb + "して編集・分岐できます"
           : "白い玉を" + verb + "して線路をつなげる";
   prompt.style.display =
     mode === "build" && ((selectedEnd && !selectedKind) || free || prop || (open.length === 0 && selectedPiece === null && !selectedKind))
@@ -1734,10 +1734,11 @@ async function startCourse() {
   shelf.refreshAvailability();
   refreshQuickBar();
   fitShadow();
-  // コース全体が入る位置へカメラを寄せる
+  // コース全体が入る位置へカメラを寄せる（縦画面では横幅に合わせて少し引く）
   const box = new THREE.Box3().setFromObject(world);
   const center = box.getCenter(new THREE.Vector3());
-  const radius = Math.max(8, box.getSize(new THREE.Vector3()).length() / 2);
+  const aspectFix = camera.aspect < 1 ? 1 / Math.max(0.55, camera.aspect * 1.12) : 1;
+  const radius = Math.max(8, (box.getSize(new THREE.Vector3()).length() / 2) * aspectFix);
   controls.target.copy(center);
   camera.position.set(center.x, center.y + radius * 1.1, center.z - radius * 1.1);
 }
