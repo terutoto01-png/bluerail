@@ -1,0 +1,24 @@
+{
+  "id": "PointY",
+  "label": "Y字分岐 Y",
+  "categories": ["Point"],
+  "order": 220,
+  "model": "Rails/PointY/Track_Point_Y",
+  "mirror": "PointY",
+  "flip": "PointY",
+  "action": "point",
+  "leverAngle": 52.0,
+  "ports": [
+    { "id": "Start",  "face": "a", "position": [0, 0, 0],        "euler": [0, 0, 0] },
+    { "id": "End",    "face": "b", "position": [-1.5, 0, -6.0], "euler": [0, 0, 0] },
+    { "id": "Branch", "face": "c", "position": [1.5, 0, -6.0],  "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 3.123478, "turn": 1,  "radius": 6.375 },
+                    { "length": 3.123478, "turn": -1, "radius": 6.375 } ] },
+    { "id": "branch",  "from": "Start", "to": "Branch",
+      "segments": [ { "length": 3.123478, "turn": -1, "radius": 6.375 },
+                    { "length": 3.123478, "turn": 1,  "radius": 6.375 } ] }
+  ]
+}

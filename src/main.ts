@@ -1,0 +1,1727 @@
+import * as THREE from "three";
+import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { loadCatalog, modelUrl, type Catalog } from "./catalog";
+import { loadCourse, type CourseSave, type PieceSave } from "./course";
+import { checkCatalog, looseJoints, portHeading, samplePath, toWorld } from "./track";
+import { flexPlacement, limitsOf } from "./flex";
+import { buildRoute, type Route } from "./route";
+import { cycle, junctionsOf, readState, writeState } from "./points";
+import { loadTrainDef, loadTrainIds, Train } from "./train";
+import { CameraRig, type CameraMode } from "./cameras";
+import { freePlacement, isUpstream, openPorts, placementsAt, type OpenPort } from "./place";
+import { findOverlaps, type Hit } from "./overlap";
+import { downloadCourse, loadSaved, parseCourse, saveCourse, savedNames } from "./storage";
+import { Shelf } from "./shelf";
+import { createThumbnailer } from "./thumbs";
+import { buildScenery, setSharedEnvironment, toStandard, type Scenery } from "./scenery";
+import { buildSupports, loadPierModels } from "./supports";
+import { Minimap } from "./minimap";
+import { PropsLayer } from "./propsLayer";
+import { buildDecorations } from "./decor";
+import { buildWorn, centrePath, loadWorn, wearable } from "./decorWorn";
+import { buildProp, type PropSave } from "./props";
+
+const base = import.meta.env.BASE_URL;
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+// 指で触る端末（スマホ・タブレット）は、描く画素と影を軽くする
+const coarse = matchMedia("(pointer: coarse)").matches;
+renderer.setPixelRatio(Math.min(devicePixelRatio, coarse ? 1.5 : 2));
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xd6bd98);
+// near が小さいほど奥行きの精度が落ち、近い面どうし（床とマットなど）がちらつく。運転席でも車体の中までは寄らない値
+const camera = new THREE.PerspectiveCamera(48, 1, 0.25, 2000);
+camera.position.set(0, 18, -18);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 0);
+// Unity 版と同じ手の動き: 左ドラッグで動かす / 右ドラッグで回す / ホイールで寄る
+controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
+controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+controls.screenSpacePanning = false;
+// Unity 版の制限: 距離 10〜42（広い板を出すときは 60）、俯角 10〜83°。極端に引いて家の外を見せない
+controls.minDistance = 10;
+controls.maxDistance = 60;
+controls.minPolarAngle = THREE.MathUtils.degToRad(90 - 83);
+controls.maxPolarAngle = THREE.MathUtils.degToRad(90 - 10);
+const rig = new CameraRig(camera, controls);
+
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+let scenery: Scenery;
+
+// Unity は左手系。データは Unity の座標のまま持ち、描くときだけ x を反転する
+const world = new THREE.Group();
+world.scale.x = -1;
+scene.add(world);
+
+const fbx = new FBXLoader();
+const models = new Map<string, Promise<THREE.Group>>();
+const modelBounds = new Map<string, THREE.Box3>();
+function loadModel(kind: string): Promise<THREE.Group> {
+  let p = models.get(kind);
+  if (!p) {
+    const def = catalog.get(kind);
+    if (!def) throw new Error(`未知の部品: ${kind}`);
+    // レールは塗装プラスチック。艶は Unity 版と同じ（smoothness 0.34 → roughness 0.66）。影を落とし、受ける
+    p = fbx.loadAsync(modelUrl(base, def)).then((g) => {
+      g.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        o.material = Array.isArray(o.material) ? o.material.map((m) => toStandard(m, 0.66)) : toStandard(o.material, 0.66);
+        o.castShadow = o.receiveShadow = true;
+      });
+      // 外形を Unity の局所座標（FBX は cm・右手系なので x を反転）で覚える。函の屋根の判定に使う
+      const b = new THREE.Box3().setFromObject(g);
+      modelBounds.set(
+        kind,
+        new THREE.Box3(new THREE.Vector3(-b.max.x * 0.01, b.min.y * 0.01, b.min.z * 0.01), new THREE.Vector3(-b.min.x * 0.01, b.max.y * 0.01, b.max.z * 0.01)),
+      );
+      return g;
+    });
+    models.set(kind, p);
+  }
+  return p;
+}
+
+// --- 状態 ---
+let catalog: Catalog;
+let shelf: Shelf;
+let course: CourseSave | null = null;
+let route: Route | null = null;
+let train: Train | null = null;
+let mode: "build" | "drive" = "build";
+let running = true;
+let speed = 0;
+/** 部品の描画グループ。userData.index が course.pieces の番号 */
+let pieceGroups: THREE.Group[] = [];
+/** 分岐レールの状態表示（直進＝緑 / 分岐＝橙） */
+/** 分岐のレバーの印。キーは「部品の番号:腕の番号」 */
+const markers = new Map<string, THREE.Mesh>();
+
+// 配置
+let selectedKind: string | null = null;
+let placementIdx = 0;
+// 自由配置（端を選ばずにマットへ置く）。狙いの点・進む向き（45°刻み）・階層
+let freeAim: [number, number] | null = null;
+let freeTheta = 0;
+let freeLevel = 0;
+const LEVEL_HEIGHT = 1.6667;
+/** 磁石が働く距離。格子（1.5）と複線の間隔（1.6667）のどちらより小さい */
+const MAGNET = 1.2;
+let open: OpenPort[] = [];
+let selectedEnd: OpenPort | null = null;
+const propsLayer = new PropsLayer();
+world.add(propsLayer.group);
+const endGroup = new THREE.Group();
+world.add(endGroup);
+let ghost: THREE.Group | null = null;
+let ghostPiece: PieceSave | null = null;
+let ghostHits: Hit[] = [];
+/** 戻す。編集の前の部品を丸ごと覚える */
+let undoStack: string[] = [];
+
+// 検証用。開発中の操作をコンソールから行う
+(window as unknown as { __app: unknown }).__app = {
+  camera,
+  controls,
+  get train() {
+    return train;
+  },
+  get route() {
+    return route;
+  },
+  get course() {
+    return course;
+  },
+  get open() {
+    return open;
+  },
+  get selectedEnd() {
+    return selectedEnd;
+  },
+  /** 既存コースの全部品を1つずつ外して置き直し、誤って断らないかを数える */
+  audit: () => {
+    const pieces = course!.pieces;
+    return pieces.flatMap((p, i) => {
+      const rest = pieces.filter((_, j) => j !== i);
+      return findOverlaps(catalog, rest, p, openPorts(catalog, rest), railHalfWidth()).map((h) => ({ i, part: p.kind, ...h }));
+    });
+  },
+  /** 列車の位置に縛られずに、いまの状態でルートを組み直した結果 */
+  freshRoute: (lane = runLane) => buildRoute(catalog, course!.pieces, undefined, undefined, undefined, lane),
+  /** 任意の姿勢の部品が置けるかを調べる */
+  probe: (kind: string, x: number, y: number, z: number, yaw: number) =>
+    findOverlaps(
+      catalog,
+      course!.pieces,
+      { kind, position: { x, y, z }, euler: { x: 0, y: yaw, z: 0 }, state: "", lift: 0, liftFrom: "", branchSet: false, autoFlip: false },
+      open,
+      railHalfWidth(),
+    ),
+  selectPiece: (i: number | null) => selectPiece(i),
+  deletePiece: () => deletePiece(),
+  replacePiece: (kind: string) => replacePiece(kind),
+  get selectedPiece() {
+    return selectedPiece;
+  },
+  aim: (x: number, z: number) => aimFree(new THREE.Vector3(x, 0, z)),
+  turn: (n: number) => turnFree(n),
+  get freeAim() {
+    return freeAim;
+  },
+  scene,
+  renderer,
+  props: propsLayer,
+  holdProp: (id: string | null) => holdProp(id),
+  confirmProp: () => confirmProp(),
+  get extras() {
+    return extras;
+  },
+  get ghostHits() {
+    return ghostHits;
+  },
+  get supports() {
+    return supportsGroup;
+  },
+  get scenery() {
+    return scenery;
+  },
+  markers,
+  toggle: (i: number, arm = 0) => toggleSwitch(i, arm),
+  tick,
+  selectKind: (k: string | null) => selectKind(k),
+  selectEnd: (i: number | null) => selectEnd(i === null ? null : open[i]!),
+  place: () => confirmPlace(),
+  undo: () => undo(),
+  setMode: (m: "build" | "drive") => setMode(m),
+};
+
+function resize() {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize);
+resize();
+
+const clock = new THREE.Clock();
+/** 1コマぶんの更新。描画から切り離してあるので、固定の刻みで回して検証できる */
+function tick(dt: number) {
+  if (!route || !train) return;
+  // 前に別の編成が居るなら止まる。目標の速さは全編成で同じ
+  // 目標の速さは編成ごと。見ている編成だけ、画面の操作が効く
+  const all = [
+    { train, route, lane: runLane, want: mode === "drive" && running ? speed : 0 },
+    ...extras.map((r) => ({ train: r.train, route: r.route, lane: r.lane, want: mode === "drive" && r.running ? r.speed : 0 })),
+  ];
+  const blocked = blockedRuns(all);
+  all.forEach((r, i) => (r.train.target = blocked[i] ? 0 : r.want));
+  stepRun(dt);
+  for (const run of extras) withRun(run, () => stepRun(dt));
+  if (needAll) {
+    needAll = false;
+    rebuildAll();
+  }
+}
+
+function stepRun(dt: number) {
+  if (!route || !train) return;
+  // 電車より短い線には乗らない。重なって見えるより、出さないほうがよい
+  train.root.visible = route.length + 0.01 >= train.length;
+  train.update(route, dt);
+  flipAutoPoints(route, train);
+  // 列車の尻が次の区間へ移るたびに組み直す。列車の先は、いつも「いまの分岐の状態」で組まれている
+  if (tailSegOf(route) !== lastTailSeg) rebuildRoute();
+}
+
+renderer.setAnimationLoop(() => {
+  tick(Math.min(clock.getDelta(), 0.1));
+  scene.updateMatrixWorld();
+  scenery?.updateWalls(camera.position);
+  scenery?.updateProps(camera.position, controls.target);
+  rig.update(route, train);
+  controls.update();
+  clampFocus();
+  updateHud(performance.now());
+  renderer.render(scene, camera);
+});
+
+let minimap: Minimap | null = null;
+let minimapAt = 0;
+
+/** ミニマップと案内（部品を選ぶ促し）を更新する。ミニマップは 10 回/秒で足りる */
+function updateHud(now: number) {
+  if (minimap && course && now - minimapAt > 100) {
+    minimapAt = now;
+    minimap.draw(catalog, course.pieces, route, train ? train.s : null, open, selectedEnd);
+  }
+  const prompt = $("prompt");
+  // 端を選んだのに部品が決まっていないとき
+  document.body.classList.toggle(
+    "hand",
+    mode === "build" && ((!!selectedKind && !selectedEnd) || !!propsLayer.kind || propsLayer.picked !== null),
+  );
+  const free = mode === "build" && !selectedEnd && !!selectedKind && !freeAim;
+  const prop = mode === "build" && !!propsLayer.kind;
+  prompt.textContent = prop
+    ? propsLayer.aimAt
+      ? "半透明の物をクリックして置く（Q / E で回す）"
+      : "マットをクリックして置く場所を決める"
+    : free
+      ? "マットをクリックして置く場所を決める（Q / E で回す、PageUp / PageDown で高さ）"
+      : "部品を選んで、線路をつなげる";
+  prompt.style.display = mode === "build" && ((selectedEnd && !selectedKind) || free || prop) ? "block" : "none";
+}
+
+/** 注視点を部屋の中に留める。カメラも同じだけ動かして、見ている絵を保つ。自由視点のときだけ */
+function clampFocus() {
+  if (!scenery || rig.mode !== "free") return;
+  const t = controls.target;
+  // 部屋は x を反転して置いてあるが、範囲は左右対称なのでそのまま使える
+  const x = THREE.MathUtils.clamp(t.x, -scenery.limit.x, scenery.limit.x);
+  const z = THREE.MathUtils.clamp(t.z, -scenery.limit.z, scenery.limit.z);
+  if (x === t.x && z === t.z) return;
+  camera.position.x += x - t.x;
+  camera.position.z += z - t.z;
+  t.x = x;
+  t.z = z;
+}
+
+// --- 速度 ---
+function applySpeed() {
+  if (train) train.target = mode === "drive" && running ? speed : 0;
+  $<HTMLButtonElement>("go").textContent = running ? "⏸" : "▶";
+  $<HTMLInputElement>("speed").value = String(speed);
+  $("speedText").textContent = `${speed < 0 ? "後退 " : ""}${Math.abs(speed).toFixed(1)} m/s`;
+}
+
+/** 速度は符号付き。正が前進、負が後退 */
+function setSpeed(v: number) {
+  const max = train?.def.maxSpeed ?? 8;
+  speed = Math.min(Math.max(v, -max), max);
+  if (speed !== 0) running = true;
+  applySpeed();
+}
+
+// --- 列車 ---
+async function showTrain() {
+  const r = route;
+  if (!r || !r.points.length) return;
+  const t = await Train.create(base, await loadTrainDef(base, $<HTMLSelectElement>("train").value));
+  if (route !== r) return; // 作っている間にコースが替わった
+  if (train) world.remove(train.root);
+  train = t;
+  world.add(t.root);
+  const at = (course?.trains as { at: number }[] | undefined)?.[0]?.at ?? 0;
+  t.place(r, headStart(r, t, at));
+  $<HTMLInputElement>("speed").max = String(t.def.maxSpeed);
+  $<HTMLInputElement>("speed").min = String(-t.def.maxSpeed);
+  speed = t.def.presetSpeed;
+  running = true;
+  applySpeed();
+  t.speed = 0;
+}
+
+// --- 分岐 ---
+/** 腕の色。自動は水色、固定は 道0=緑・道1=だいだい・道2=紫 */
+const PICK_COLORS = [0x2ecc71, 0xff8a00, 0xb06cff, 0xff5a8a];
+
+function paintMarker(i: number) {
+  const piece = course!.pieces[i]!;
+  const def = catalog.get(piece.kind);
+  if (!def) return;
+  const st = readState(def, piece);
+  st.picks.forEach((pick, j) => {
+    const m = markers.get(`${i}:${j}`);
+    if (m) (m.material as THREE.MeshBasicMaterial).color.set(st.auto[j] ? 0x35c8ff : PICK_COLORS[pick % PICK_COLORS.length]!);
+  });
+}
+
+/**
+ * 経路を組み直す。列車は動かさない。
+ * 列車の尻がある部品を起点に歩き直し、輪になれば起点を付け替える（座標が変わるので s も引く）。
+ * 輪にならない（行き止まり・投げ縄）ときは、その手前を前のルートのまま残す。後退で戻れるように
+ */
+function rebuildRoute() {
+  if (!course) return;
+  const old = route;
+  if (!old || !train || !old.segs.length) {
+    route = buildRoute(catalog, course.pieces, runEntry, undefined, undefined, runLane);
+  } else {
+    train.s = old.canonicalHead(train.s, train.length);
+    const tail = Math.max(0, train.s - train.length);
+    const cut = old.segIndexAt(tail);
+    const seg = old.segs[cut]!;
+    // 列車が乗っている区間は、いま走っている道のまま組む
+    const locks = new Map<string, string>();
+    for (const sg of old.segsUnder(tail, train.s)) locks.set(`${sg.piece}:${sg.entry}`, sg.path);
+    const fresh = buildRoute(catalog, course.pieces, { piece: seg.piece, port: seg.entry }, undefined, locks, seg.lane);
+    if (fresh.closed && fresh.loopStart === 0) {
+      route = fresh;
+      train.place(route, train.s - seg.s);
+    } else {
+      route = buildRoute(catalog, course.pieces, undefined, { route: old, seg: cut }, locks);
+      train.place(route, train.s);
+    }
+  }
+  if (route.notes.length) console.warn("ルート", route.notes);
+  lastTailSeg = tailSegOf(route);
+  showInfo();
+}
+
+let lastTailSeg = -1;
+function tailSegOf(r: Route): number {
+  if (!train) return -1;
+  return r.segIndexAt(Math.max(0, r.canonicalHead(train.s, train.length) - train.length));
+}
+
+function showInfo() {
+  if (!course || !route) return;
+  const loose = looseJoints(catalog, course.pieces);
+  if (loose.length) console.warn(`継ぎ目のずれ ${loose.length} 件`, loose);
+  const kind = route.closed ? (route.loopStart > 0 ? `${route.loopStart.toFixed(0)}m から周回` : "周回") : "開";
+  $("info").textContent =
+    `${course.pieces.length} 個 / ルート ${route.length.toFixed(1)}m（${kind}）` + (loose.length ? ` / ⚠継ぎ目のずれ ${loose.length}` : "");
+}
+
+/** 分岐のレバー（腕 arm）。自動 → 道0（固定）→ 道1 … → 自動（Unity §6.1.1） */
+function toggleSwitch(i: number, arm = 0) {
+  const piece = course?.pieces[i];
+  const def = piece && catalog.get(piece.kind);
+  const junction = def && junctionsOf(def)[arm];
+  if (!piece || !def || !junction) return;
+  const st = readState(def, piece);
+  cycle(st, arm, junction.count);
+  writeState(piece, st);
+  paintMarker(i);
+  rebuildAll();
+}
+
+/** 置いたばかりの分岐は自動（Unity の既定） */
+function withDefaultState(piece: PieceSave): PieceSave {
+  const def = catalog.get(piece.kind);
+  if (def) {
+    const st = readState(def, piece);
+    st.auto.fill(true);
+    writeState(piece, st);
+  }
+  return piece;
+}
+
+// --- 複数の編成 ---
+// 1本目は大域の train / route / lastTailSeg / occupied / runEntry が持つ。2本目以降は Run に入れ、
+// withRun で大域へ差し込んで同じ関数（rebuildRoute など）を使う。差し込みは入れ子にしないこと
+interface Run {
+  train: Train;
+  route: Route;
+  lastTailSeg: number;
+  occupied: Set<string>;
+  /** この編成のルートの始点（部品の番号と口）。1本目は既定の始点 */
+  entry: { piece: number; port: string } | undefined;
+  /** この編成が走る車線（進行方向で見た左右。"" は中央） */
+  lane: string;
+  /** 画面の操作（速さ・走る止まる）が、この編成を見ていないあいだ持っておく値 */
+  speed: number;
+  running: boolean;
+}
+let extras: Run[] = [];
+let runEntry: Run["entry"];
+let runLane = "";
+/** 自動転換が起きた。ほかの編成の先も組み直す */
+let needAll = false;
+
+function withRun(run: Run, fn: () => void) {
+  const saved = { train, route, lastTailSeg, occupied, runEntry, runLane, speed, running };
+  speed = run.speed;
+  running = run.running;
+  train = run.train;
+  route = run.route;
+  lastTailSeg = run.lastTailSeg;
+  occupied = run.occupied;
+  runEntry = run.entry;
+  runLane = run.lane;
+  try {
+    fn();
+  } finally {
+    run.train = train!;
+    run.route = route!;
+    run.lastTailSeg = lastTailSeg;
+    run.occupied = occupied;
+    run.entry = runEntry;
+    run.lane = runLane;
+    run.speed = speed;
+    run.running = running;
+    ({ train, route, lastTailSeg, occupied, runEntry, runLane, speed, running } = saved);
+  }
+}
+
+/** カメラとミニマップが見る編成を、次の編成へ替える（2本目以降を1本目と入れ替える） */
+function nextTrain() {
+  const next = extras.shift();
+  if (!next || !train || !route) return;
+  extras.push({ train, route, lastTailSeg, occupied, entry: runEntry, lane: runLane, speed, running });
+  speed = next.speed;
+  running = next.running;
+  applySpeed();
+  train = next.train;
+  route = next.route;
+  lastTailSeg = next.lastTailSeg;
+  occupied = next.occupied;
+  runEntry = next.entry;
+  runLane = next.lane;
+  showInfo();
+  $<HTMLSelectElement>("lane").value = runLane;
+  toast(`${train.def.id} を見ています`);
+}
+
+/** 全編成のルートを、いまの部品の状態で組み直す */
+function rebuildAll() {
+  rebuildRoute();
+  for (const run of extras) withRun(run, rebuildRoute);
+  showInfo();
+}
+
+/** 先頭の前ガイドの置き場所。コースが決めた「ここから何m」に、編成の長さを足す */
+const headStart = (r: Route, t: Train, at: number) => Math.min(r.length, at + t.length);
+
+/** 口の名前から、その口を持つ最初の部品を探す */
+function entryFor(port: string): Run["entry"] {
+  const piece = course!.pieces.findIndex((p) => catalog.get(p.kind)?.ports.some((q) => q.id === port));
+  return piece < 0 ? undefined : { piece, port };
+}
+
+/** 2本目以降の編成を、コースの指定どおりに置く */
+async function spawnExtras() {
+  const specs = (course?.trains ?? []) as { train: string; at: number; port: string }[];
+  const gen = renderGeneration;
+  extras = [];
+  for (const spec of specs.slice(1)) {
+    // 口が見つからなければ、既定の始点から数える（同じ線の上に並ぶ）
+    const entry = entryFor(spec.port);
+    const t = await Train.create(base, await loadTrainDef(base, spec.train));
+    if (gen !== renderGeneration) return;
+    const lane = (spec as { lane?: string }).lane ?? "";
+    const r = buildRoute(catalog, course!.pieces, entry, undefined, undefined, lane);
+    if (!r.points.length) continue;
+    t.place(r, headStart(r, t, spec.at));
+    t.speed = 0;
+    world.add(t.root);
+    extras.push({ train: t, route: r, lastTailSeg: r.segIndexAt(Math.max(0, r.canonicalHead(t.s, t.length) - t.length)), occupied: new Set(), entry, lane, speed: t.def.presetSpeed, running: true });
+  }
+}
+
+/** 前に別の編成が居て、このまま進むとぶつかる編成。先頭の前 3m 以内、横 0.9m 以内、高さが近い車体があれば止まる */
+function blockedRuns(runs: { train: Train; route: Route; lane: string; want: number }[]): boolean[] {
+  return runs.map((a, ia) => {
+    const dir = Math.sign(a.want);
+    if (dir === 0) return false;
+    const lead = a.route.at(a.train.leadS);
+    const hx = Math.sin(lead.heading) * dir;
+    const hz = -Math.cos(lead.heading) * dir;
+    return runs.some((b, ib) => {
+      if (ia === ib) return false;
+      for (let s = b.train.s - b.train.length; s <= b.train.s + 0.01; s += 0.7) {
+        const p = b.route.at(s);
+        const dx = p.x - lead.x;
+        const dz = p.z - lead.z;
+        const ahead = dx * hx + dz * hz;
+        // 別の車線なら横に半車線ぶん離れているので、横の許容を狭める
+        const reach = a.lane === b.lane ? 0.9 : 0.25;
+        if (ahead > -0.2 && ahead < 3 && Math.abs(dx * hz - dz * hx) < reach && Math.abs(p.y - lead.y) < 1) return true;
+      }
+      return false;
+    });
+  });
+}
+
+/** 前のコマで電車が乗っていた「部品:入口」 */
+let occupied = new Set<string>();
+
+/** 電車が抜けた自動の腕を、次の道へ切り替える。乗っている間は動かさない（下で線が変わると瞬間移動する） */
+function flipAutoPoints(r: Route, t: Train) {
+  const head = r.canonicalHead(t.s, t.length);
+  const now = new Set(r.segsUnder(Math.max(0, head - t.length), head).map((sg) => `${sg.piece}:${sg.entry}`));
+  let flipped = false;
+  for (const key of occupied) {
+    if (now.has(key)) continue;
+    const [pi, entry] = [Number(key.split(":")[0]), key.slice(key.indexOf(":") + 1)];
+    const piece = course?.pieces[pi];
+    const def = piece && catalog.get(piece.kind);
+    if (!piece || !def) continue;
+    const arm = junctionsOf(def).findIndex((j) => j.port === entry);
+    if (arm < 0) continue;
+    const st = readState(def, piece);
+    if (!st.auto[arm]) continue;
+    st.picks[arm] = (st.picks[arm]! + 1) % junctionsOf(def)[arm]!.count;
+    writeState(piece, st);
+    paintMarker(pi);
+    flipped = true;
+  }
+  occupied = now;
+  if (flipped) needAll = true;
+}
+
+// --- 部品の描画 ---
+const ghostMaterial = new THREE.MeshBasicMaterial({
+  color: 0x6fb7ff,
+  transparent: true,
+  opacity: 0.55,
+  depthWrite: false,
+});
+
+const ghostBadMaterial = new THREE.MeshBasicMaterial({
+  color: 0xff5a4d,
+  transparent: true,
+  opacity: 0.6,
+  depthWrite: false,
+});
+
+/** 部品1つぶんのグループ。ghost なら半透明の1色で描く（置けないなら赤） */
+async function makePieceGroup(piece: PieceSave, ghosted = false, bad = false): Promise<THREE.Group> {
+  const model = (await loadModel(piece.kind)).clone();
+  // FBX は cm・右手系。Unity の取り込みと同じく 0.01 倍して x を反転し、Unity の局所座標に合わせる
+  model.scale.set(-0.01, 0.01, 0.01);
+  model.children.filter((c) => c.name.startsWith("Connection_")).forEach((c) => model.remove(c));
+  if (ghosted) {
+    model.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.material = bad ? ghostBadMaterial : ghostMaterial;
+    });
+  }
+  const g = new THREE.Group();
+  g.position.set(piece.position.x, piece.position.y, piece.position.z);
+  g.rotation.order = "YXZ";
+  g.rotation.set(
+    THREE.MathUtils.degToRad(piece.euler.x),
+    THREE.MathUtils.degToRad(piece.euler.y),
+    THREE.MathUtils.degToRad(piece.euler.z),
+  );
+  const derived = catalog.of(piece);
+  if (derived && derived.action === "flex" && derived.id !== piece.kind) {
+    // まがレール: 節を数珠のように、弧に沿って並べる（Unity の `BuildFlexPiece`）
+    const lim = limitsOf(derived);
+    const poses = samplePath(derived, derived.paths[0]!, 0.05, 0);
+    const total = poses.length * 0.05;
+    const count = Math.max(1, Math.round(total / lim.nodeLength));
+    const at = (k: number) => poses[Math.min(poses.length - 1, Math.round((poses.length - 1) * (k / count)))]!;
+    for (let k = 0; k < count; k++) {
+      const a = at(k);
+      const b = at(k + 1);
+      const bead = new THREE.Group();
+      bead.position.set(a.x, a.y, a.z);
+      bead.rotation.y = Math.atan2(-(b.x - a.x), -(b.z - a.z));
+      bead.add(model.clone());
+      g.add(bead);
+    }
+    return g;
+  }
+  g.add(model);
+  return g;
+}
+
+/** 分岐の腕ごとにレバーの印を立てる。腕の口から部品の中心へ少し入った所 */
+function addMarker(g: THREE.Group, i: number, piece: PieceSave) {
+  const def = catalog.get(piece.kind);
+  if (!def) return;
+  const junctions = junctionsOf(def);
+  if (!junctions.length) return;
+  const cx = def.ports.reduce((a, p) => a + p.position[0], 0) / def.ports.length;
+  const cz = def.ports.reduce((a, p) => a + p.position[2], 0) / def.ports.length;
+  junctions.forEach((junction, j) => {
+    const port = def.ports.find((p) => p.id === junction.port)!;
+    const dx = cx - port.position[0];
+    const dz = cz - port.position[2];
+    const len = Math.hypot(dx, dz) || 1;
+    const marker = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.6, 12), new THREE.MeshBasicMaterial());
+    marker.position.set(port.position[0] + (dx / len) * 1.5, 1.4, port.position[2] + (dz / len) * 1.5);
+    marker.rotation.x = Math.PI; // 先を下へ向ける
+    marker.userData.arm = j;
+    g.add(marker);
+    markers.set(`${i}:${j}`, marker);
+  });
+  paintMarker(i);
+}
+
+let renderGeneration = 0;
+/** 部品を全部描き直す。読み込み・Undo・新しいコースで使う */
+async function renderPieces() {
+  const gen = ++renderGeneration;
+  for (const g of pieceGroups) world.remove(g);
+  pieceGroups = [];
+  markers.clear();
+  const pieces = course!.pieces;
+  const groups: THREE.Group[] = [];
+  for (const [i, piece] of pieces.entries()) {
+    const g = await makePieceGroup(piece);
+    if (gen !== renderGeneration) return; // 描いている間に次の描き直しが始まった
+    g.userData.index = i;
+    addMarker(g, i, piece);
+    groups.push(g);
+  }
+  pieceGroups = groups;
+  for (const g of groups) world.add(g);
+  await refreshSupports();
+}
+
+let supportsGroup: THREE.Group | null = null;
+let supportsGeneration = 0;
+/** 高架の橋脚を、いまの部品から作り直す。手で置く橋脚は無く、配置が変わるたびに積み直す */
+async function refreshSupports() {
+  if (!course) return;
+  const gen = ++supportsGeneration;
+  const pier = await loadPierModels(base);
+  if (gen !== supportsGeneration) return;
+  const decor = await buildDecorations(base, catalog, course.pieces);
+  const worn = await buildWorn(base, catalog, course.pieces);
+  if (gen !== supportsGeneration) return;
+  if (supportsGroup) world.remove(supportsGroup);
+  if (decorGroup) world.remove(decorGroup);
+  supportsGroup = buildSupports(catalog, course.pieces, pier, (kind) => modelBounds.get(kind) ?? null);
+  decorGroup = decor;
+  decorGroup.add(worn);
+  world.add(supportsGroup, decorGroup);
+}
+let decorGroup: THREE.Group | null = null;
+
+/** 選んだ部品に装飾をかぶせる・外す。トンネルと鉄橋は同時に着ない */
+async function toggleWorn(id: string) {
+  if (!course || selectedPiece === null) return;
+  const piece = course.pieces[selectedPiece]!;
+  const worn = await loadWorn(base, id);
+  if (!wearable(catalog.get(piece.kind), worn)) {
+    toast("この部品には掛けられません（分岐・S字・複線は不可）");
+    return;
+  }
+  snapshot();
+  const had = (piece.decorations ?? []).includes(id);
+  piece.decorations = had ? [] : [id];
+  await refreshSupports();
+  paintSelection();
+}
+
+// --- 配置 ---
+function toast(text: string) {
+  const el = $("toast");
+  el.textContent = text;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => el.classList.remove("show"), 2200);
+}
+let toastTimer = 0;
+
+const endBall = new THREE.SphereGeometry(0.38, 20, 14);
+const endHit = new THREE.SphereGeometry(0.8, 8, 6);
+const endWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const endYellow = new THREE.MeshBasicMaterial({ color: 0xffd23f });
+const hitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+
+/** 開いた端を描き直す。端の定義は「他の口と重なっていない口」 */
+function refreshEnds() {
+  endGroup.clear();
+  open = course ? openPorts(catalog, course.pieces) : [];
+  // 前に選んでいた端が残っていれば選び直す。無くなっていれば外す
+  if (selectedEnd) {
+    selectedEnd = open.find((o) => o.piece === selectedEnd!.piece && o.id === selectedEnd!.id) ?? null;
+  }
+  if (mode !== "build") return;
+  open.forEach((o, i) => {
+    const ball = new THREE.Mesh(endBall, o === selectedEnd ? endYellow : endWhite);
+    ball.scale.setScalar(o === selectedEnd ? 1.5 : 1);
+    ball.position.set(o.pos[0], o.pos[1] + 0.3, o.pos[2]);
+    const hit = new THREE.Mesh(endHit, hitMaterial);
+    hit.userData.end = i;
+    hit.position.copy(ball.position);
+    endGroup.add(ball, hit);
+  });
+}
+
+// --- 部品の選択・削除・差し替え ---
+let selectedPiece: number | null = null;
+let selectionBox: THREE.Mesh | null = null;
+
+/** 選んだ部品の枠を描き直し、削除ボタンと棚の灰色を合わせる */
+/** 区間を選んでいるときの、ほかの部品の枠 */
+let spanBoxes: THREE.Mesh[] = [];
+/** 選んだ区間（部品の番号）。無ければ、つながった全体が対象 */
+let spanSet: number[] | null = null;
+/** 「区間を選ぶ」を押して、終わりの部品を待っている */
+let spanPicking = false;
+
+function paintSelection() {
+  if (selectionBox) selectionBox.removeFromParent();
+  selectionBox = null;
+  spanBoxes.forEach((m) => m.removeFromParent());
+  spanBoxes = [];
+  for (const i of spanSet ?? []) {
+    const gi = pieceGroups[i];
+    const bi = course ? modelBounds.get(course.pieces[i]!.kind) : null;
+    if (!gi || !bi || i === selectedPiece) continue;
+    const size = bi.getSize(new THREE.Vector3()).addScalar(0.12);
+    const box = new THREE.Mesh(
+      new THREE.BoxGeometry(size.x, size.y, size.z),
+      new THREE.MeshBasicMaterial({ color: 0xf5df91, transparent: true, opacity: 0.3, depthWrite: false }),
+    );
+    box.position.copy(bi.getCenter(new THREE.Vector3()));
+    gi.add(box);
+    spanBoxes.push(box);
+  }
+  const g = selectedPiece === null ? null : pieceGroups[selectedPiece];
+  const b = selectedPiece === null || !course ? null : modelBounds.get(course.pieces[selectedPiece]!.kind);
+  if (g && b) {
+    const size = b.getSize(new THREE.Vector3()).addScalar(0.12);
+    selectionBox = new THREE.Mesh(
+      new THREE.BoxGeometry(size.x, size.y, size.z),
+      new THREE.MeshBasicMaterial({ color: 0xf5df91, transparent: true, opacity: 0.45, depthWrite: false }),
+    );
+    selectionBox.position.copy(b.getCenter(new THREE.Vector3()));
+    g.add(selectionBox);
+  }
+  ($("remove") as HTMLButtonElement).disabled = selectedPiece === null;
+  document.body.classList.toggle("picked", selectedPiece !== null);
+  const kind = selectedPiece === null || !course ? null : catalog.get(course.pieces[selectedPiece]!.kind);
+  const hand = !!kind && !!centrePath(kind);
+  ($("tunnel") as HTMLButtonElement).disabled = !hand;
+  ($("bridge") as HTMLButtonElement).disabled = !hand;
+  shelf?.refreshAvailability();
+}
+
+function selectPiece(i: number | null) {
+  if (spanPicking && selectedPiece !== null && i !== null && i !== selectedPiece) {
+    const path = pathBetween(selectedPiece, i);
+    spanPicking = false;
+    if (!path) {
+      toast("その部品へは、つながっていません");
+      return;
+    }
+    spanSet = path;
+    paintSelection();
+    toast(`${path.length} 個の区間を選びました。上下・複製の対象になります`);
+    return;
+  }
+  spanSet = null;
+  spanPicking = false;
+  selectedPiece = i === selectedPiece ? null : i;
+  if (selectedPiece !== null) {
+    selectedEnd = null;
+    selectedKind = null;
+    shelf.select(null);
+    refreshEnds();
+    void updateGhost();
+    toast("差し替えるには、棚から同じ形の部品を選びます");
+  }
+  paintSelection();
+}
+
+/** 部品が増減・入れ替わったあとの描き直し。経路・端・橋脚・ゴーストを合わせる */
+async function afterEdit() {
+  selectedPiece = null;
+  spanSet = null;
+  spanPicking = false;
+  await renderPieces();
+  selectedEnd = null;
+  refreshEnds();
+  await resetRoute();
+  await updateGhost();
+  paintSelection();
+  fitShadow();
+}
+
+async function deletePiece() {
+  if (!course || selectedPiece === null) return;
+  snapshot();
+  course.pieces.splice(selectedPiece, 1);
+  await afterEdit();
+}
+
+/** 継ぎ目の口が重なる部品どうし（部品ごとの隣の一覧） */
+function adjacency(): number[][] {
+  const pieces = course!.pieces;
+  const ports = pieces.map((p) => (catalog.of(p)?.ports ?? []).map((q) => toWorld(p, q.position)));
+  return pieces.map((_, i) =>
+    pieces.flatMap((__, j) =>
+      j !== i && ports[i]!.some((a) => ports[j]!.some((b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 0.05)) ? [j] : [],
+    ),
+  );
+}
+
+/** 選んだ部品とつながった全体（島）。継ぎ目の口が重なる部品を幅優先で辿る */
+function islandOf(start: number): number[] {
+  const next = adjacency();
+  const seen = new Set([start]);
+  const queue = [start];
+  while (queue.length) for (const j of next[queue.shift()!]!) if (!seen.has(j)) (seen.add(j), queue.push(j));
+  return [...seen];
+}
+
+/** 2つの部品のあいだの、いちばん短い並び（両端を含む）。つながっていなければ null */
+function pathBetween(a: number, b: number): number[] | null {
+  const next = adjacency();
+  const from = new Map<number, number>([[a, a]]);
+  const queue = [a];
+  while (queue.length && !from.has(b)) {
+    const i = queue.shift()!;
+    for (const j of next[i]!) if (!from.has(j)) (from.set(j, i), queue.push(j));
+  }
+  if (!from.has(b)) return null;
+  const out = [b];
+  while (out[0] !== a) out.unshift(from.get(out[0]!)!);
+  return out;
+}
+
+/** 操作の対象。区間を選んでいればその区間、そうでなければつながった全体 */
+function selectionSet(): number[] {
+  return spanSet ?? islandOf(selectedPiece!);
+}
+
+/** つながった全体を1階層ぶん上下する（Unity §10.5）。地面の下・他の線との重なりは断って、元へ戻す */
+async function liftIsland(dir: 1 | -1) {
+  if (!course || selectedPiece === null) return;
+  const island = selectionSet();
+  const dy = dir * LEVEL_HEIGHT;
+  const inIsland = new Set(island);
+  const moved = island.map((i) => ({ ...course!.pieces[i]!, position: { ...course!.pieces[i]!.position, y: course!.pieces[i]!.position.y + dy } }));
+  const rest = course.pieces.filter((_, i) => !inIsland.has(i));
+  for (const p of moved) {
+    const hit = findOverlaps(catalog, rest, p, openPorts(catalog, rest), railHalfWidth()).find((h) => h.kind === "ground" || h.kind === "overlap");
+    if (hit) {
+      toast(hit.kind === "ground" ? "地面より下へは下げられません" : "ほかの線路と重なるので動かせません");
+      return;
+    }
+  }
+  snapshot();
+  island.forEach((i, k) => (course!.pieces[i] = moved[k]!));
+  await afterEdit();
+  toast(dir > 0 ? "つながった全体を1階層上げました" : "つながった全体を1階層下げました");
+}
+
+/** つながった全体を、姿勢を変えずに1階層上へ複製する（Unity §10.5「1段上にコピー」）。螺旋やタワーを積むのに使う */
+async function copyIslandUp() {
+  if (!course || selectedPiece === null) return;
+  const island = selectionSet();
+  const copies: PieceSave[] = island.map((i) => {
+    const p = JSON.parse(JSON.stringify(course!.pieces[i])) as PieceSave;
+    p.position.y += LEVEL_HEIGHT;
+    return p;
+  });
+  // 複製どうしは繋がっているので、既にある部品だけに対して調べる。1階層の差があれば重ならない
+  for (const p of copies) {
+    const hit = findOverlaps(catalog, course.pieces, p, openPorts(catalog, course.pieces), railHalfWidth()).find(
+      (h) => h.kind === "overlap" || h.kind === "ground" || h.kind === "seam",
+    );
+    if (hit) {
+      toast("1階層上は、ほかの線路と重なるので複製できません");
+      return;
+    }
+  }
+  snapshot();
+  course.pieces.push(...copies);
+  await afterEdit();
+  toast(`${copies.length} 個を1階層上へ複製しました`);
+}
+
+/**
+ * つながった全体を、出口の先へもう1組つなぐ（Unity の「続きにコピー」）。
+ * 開いた端がちょうど入口と出口の2つのときだけ。入口を出口へ合わせる剛体変換を全体に掛ける
+ */
+async function copyContinue() {
+  if (!course || selectedPiece === null) return;
+  const island = selectionSet();
+  const members = new Set(island);
+  // 選んだ並びの端。並びの外の部品と繋がっていても、並びの端として数える
+  const ends: OpenPort[] = [];
+  for (const i of island) {
+    const piece = course.pieces[i]!;
+    const def = catalog.of(piece)!;
+    for (const port of def.ports) {
+      const w = toWorld(piece, port.position);
+      const shared = island.some(
+        (j) =>
+          j !== i &&
+          catalog.of(course!.pieces[j]!)!.ports.some((q) => {
+            const v = toWorld(course!.pieces[j]!, q.position);
+            return Math.hypot(w[0] - v[0], w[1] - v[1], w[2] - v[2]) < 0.05;
+          }),
+      );
+      if (!shared) ends.push({ piece: i, id: port.id, pos: w, heading: portHeading(port) - (piece.euler.y * Math.PI) / 180, upstream: isUpstream(def, port) });
+    }
+  }
+  const entry = ends.find((o) => o.upstream);
+  const exit = ends.find((o) => !o.upstream);
+  if (ends.length !== 2 || !entry || !exit) {
+    toast("続きにコピーできるのは、開いた端が入口と出口の2つだけのときです");
+    return;
+  }
+  const delta = exit.heading - entry.heading;
+  const c = Math.cos(delta);
+  const s = Math.sin(delta);
+  const copies: PieceSave[] = island.map((i) => {
+    const p = JSON.parse(JSON.stringify(course!.pieces[i])) as PieceSave;
+    const dx = p.position.x - entry.pos[0];
+    const dz = p.position.z - entry.pos[2];
+    p.position = {
+      x: exit.pos[0] + dx * c - dz * s,
+      y: p.position.y + (exit.pos[1] - entry.pos[1]),
+      z: exit.pos[2] + dx * s + dz * c,
+    };
+    p.euler.y = ((((p.euler.y - (delta * 180) / Math.PI) % 360) + 360) % 360);
+    return p;
+  });
+  const all = [...course.pieces, ...copies];
+  for (const p of copies) {
+    const others = all.filter((o) => o !== p);
+    const hit = findOverlaps(catalog, others, p, openPorts(catalog, others), railHalfWidth()).find(
+      (h) => h.kind === "overlap" || h.kind === "ground" || h.kind === "seam" || h.kind === "taken",
+    );
+    if (hit) {
+      toast(`続きに置けません。${hit.kind === "ground" ? "地面の下へ出ます" : hit.kind === "taken" ? "出口の先がもう繋がっています" : "ほかの線路と重なります"}`);
+      return;
+    }
+  }
+  snapshot();
+  course.pieces.push(...copies);
+  await afterEdit();
+  toast(`${copies.length} 個を出口の先へ複製しました`);
+}
+
+/** 差し替えられる相手か。口が同じ位置・同じ向き・同じ数で並べば、同じ場所へそのまま入れ替えられる（Unity §5.7） */
+function replaceable(oldKind: string, newKind: string): boolean {
+  const a = catalog.get(oldKind);
+  const b = catalog.get(newKind);
+  if (!a || !b || a === b || a.ports.length !== b.ports.length) return false;
+  const gap = (x: number, y: number) => Math.abs((((x - y) % 360) + 540) % 360 - 180);
+  return b.ports.every((q) =>
+    a.ports.some(
+      (p) =>
+        Math.hypot(p.position[0] - q.position[0], p.position[1] - q.position[1], p.position[2] - q.position[2]) < 0.02 &&
+        gap(p.euler[1], q.euler[1]) < 1,
+    ),
+  );
+}
+
+async function replacePiece(kind: string) {
+  if (!course || selectedPiece === null) return;
+  const old = course.pieces[selectedPiece]!;
+  if (!replaceable(old.kind, kind)) {
+    toast("その部品には差し替えられません（口の位置が違います）");
+    return;
+  }
+  const next: PieceSave = { ...old, kind, state: "", branchSet: false, autoFlip: false };
+  withDefaultState(next);
+  const rest = course.pieces.filter((_, j) => j !== selectedPiece);
+  const hits = findOverlaps(catalog, rest, next, openPorts(catalog, rest), railHalfWidth());
+  if (hits.length) {
+    toast(refusal(hits));
+    return;
+  }
+  snapshot();
+  course.pieces[selectedPiece] = next;
+  shelf.pushHistory(kind);
+  await afterEdit();
+}
+
+/** マットの点 p（Unity の座標）を狙う。既にある継ぎ目の近くならそこへ吸い、開いた端の近くなら端から伸ばす流れへ渡す */
+function aimFree(p: THREE.Vector3) {
+  if (!course || !selectedKind) return;
+  if (catalog.get(selectedKind)?.action === "flex") {
+    toast("まがレールは、つなぎたい端を選んでから置きます");
+    return;
+  }
+  const y = freeLevel * LEVEL_HEIGHT;
+  let x = p.x;
+  let z = p.z;
+  // 格子（1.5）。既存の継ぎ目が半格子以内にあれば、格子より先にその真上／真下へ
+  x = Math.round(x / 1.5) * 1.5;
+  z = Math.round(z / 1.5) * 1.5;
+  let seam: { d: number; x: number; z: number } | null = null;
+  for (const piece of course.pieces) {
+    const def = catalog.of(piece);
+    for (const port of def?.ports ?? []) {
+      const w = toWorld(piece, port.position);
+      const d = Math.hypot(w[0] - p.x, w[2] - p.z);
+      if (d < 0.75 && (!seam || d < seam.d)) seam = { d, x: w[0], z: w[2] };
+    }
+  }
+  if (seam) {
+    x = seam.x;
+    z = seam.z;
+  }
+  // 開いた端に磁石。向きが 22.5° 以内なら、いつもの「端から伸ばす」へ受け渡す
+  const near = open
+    .map((o) => ({ o, d: Math.hypot(o.pos[0] - x, o.pos[1] - y, o.pos[2] - z) }))
+    .filter(({ o, d }) => {
+      if (d > MAGNET) return false;
+      const gap = Math.abs(Math.atan2(Math.sin(freeTheta - o.heading), Math.cos(freeTheta - o.heading)));
+      return Math.min(gap, Math.PI - gap) < Math.PI / 8;
+    })
+    .sort((a, b) => a.d - b.d)[0];
+  if (near) {
+    freeAim = null;
+    selectEnd(near.o);
+    return;
+  }
+  freeAim = [x, z];
+  placementIdx = 0;
+  void updateGhost();
+}
+
+/** 自由配置の向き（45°刻み）。ghost を回す */
+function turnFree(steps: number) {
+  freeTheta += (steps * Math.PI) / 4;
+  // 向きが合えば磁石が働くので、狙いを出し直す
+  if (freeAim) aimFree(new THREE.Vector3(freeAim[0], 0, freeAim[1]));
+  else void updateGhost();
+}
+
+/** 見ている向きに合わせた最初の進行方向。視点を回したあとでも、1本目は画面の奥へ伸びる */
+function facingTheta(): number {
+  const d = controls.target.clone().sub(camera.position);
+  // シーンの x は Unity の x を反転している
+  const theta = Math.atan2(-d.x, -d.z);
+  return Math.round(theta / (Math.PI / 4)) * (Math.PI / 4);
+}
+
+function selectEnd(end: OpenPort | null) {
+  if (end) freeAim = null;
+  if (end && selectedPiece !== null) {
+    selectedPiece = null;
+    paintSelection();
+  }
+  selectedEnd = end && selectedEnd && end.piece === selectedEnd.piece && end.id === selectedEnd.id ? null : end;
+  placementIdx = 0;
+  refreshEnds();
+  void updateGhost();
+  shelf.refreshAvailability();
+}
+
+function selectKind(kind: string | null) {
+  if (kind && propsLayer.kind) holdProp(null);
+  if (selectedPiece !== null && kind) {
+    void replacePiece(kind);
+    return;
+  }
+  selectedKind = kind;
+  placementIdx = 0;
+  shelf.select(kind);
+  void updateGhost();
+}
+
+/** 選んだ端に選んだ部品を置いたときの姿勢（置き方が複数なら placementIdx 番目） */
+function currentPlacement() {
+  if (selectedKind && !selectedEnd && freeAim) {
+    const piece = freePlacement(catalog, selectedKind, [freeAim[0], freeLevel * LEVEL_HEIGHT, freeAim[1]], freeTheta);
+    return piece ? { face: "free", piece } : null;
+  }
+  if (!selectedKind || !selectedEnd) return null;
+  const flex = catalog.get(selectedKind);
+  if (flex?.action === "flex") {
+    const piece = flexPlacement(flex, open, selectedEnd);
+    return piece ? { face: "flex", piece } : null;
+  }
+  const all = placementsAt(catalog, open, selectedEnd, selectedKind);
+  if (!all.length) return null;
+  return all[placementIdx % all.length]!;
+}
+
+let ghostGeneration = 0;
+async function updateGhost() {
+  const gen = ++ghostGeneration;
+  const placement = mode === "build" ? currentPlacement() : null;
+  if (!placement) {
+    if (ghost) world.remove(ghost);
+    ghost = null;
+    ghostPiece = null;
+    ghostHits = [];
+    return;
+  }
+  const hits = course ? findOverlaps(catalog, course.pieces, placement.piece, open, railHalfWidth()) : [];
+  const g = await makePieceGroup(placement.piece, true, hits.length > 0);
+  if (gen !== ghostGeneration) return;
+  if (ghost) world.remove(ghost);
+  ghost = g;
+  ghostPiece = placement.piece;
+  ghostHits = hits;
+  world.add(g);
+}
+
+/** レールの半幅。直線の外形の幅から測る（数値は書かない） */
+function railHalfWidth(): number {
+  const b = modelBounds.get("Straight");
+  return b ? Math.max(Math.abs(b.min.x), Math.abs(b.max.x)) : 0.53;
+}
+
+/** 置けない理由を一言で。重なっている部品の名前を添える */
+function refusal(hits: Hit[]): string {
+  const h = hits[0]!;
+  if (h.kind === "ground") return "地面の下へもぐるので置けません";
+  const name = (i?: number) => (i === undefined || !course ? "" : (catalog.get(course.pieces[i]!.kind)?.label ?? "").replace(/\s*→$/, ""));
+  if (h.kind === "seam") return `${name(h.piece)}の継ぎ目と向きが合わないので置けません`;
+  if (h.kind === "taken") return `${name(h.piece)}の継ぎ目には、もう別の部品が付いています`;
+  return `${name(h.piece)}と重なるので置けません`;
+}
+
+/** 戻す前の状態を覚える。部品と町なみをまとめて */
+function snapshot() {
+  undoStack.push(JSON.stringify({ pieces: course!.pieces, props: course!.props ?? [] }));
+  if (undoStack.length > 100) undoStack.shift();
+}
+
+// --- 町なみ（情景） ---
+/** 棚で町なみを持つ・手放す。持つとレールの選択は外れる */
+function holdProp(id: string | null) {
+  if (id) {
+    selectedKind = null;
+    shelf.select(null);
+    freeAim = null;
+    selectEnd(null);
+    if (selectedPiece !== null) selectPiece(selectedPiece);
+    void updateGhost();
+  }
+  propsLayer.hold(id);
+  shelf.redraw();
+}
+
+function confirmProp() {
+  if (!course || !propsLayer.kind || !propsLayer.aimAt) return;
+  snapshot();
+  propsLayer.confirm();
+  fitShadow();
+}
+
+function deleteProp() {
+  if (!course || propsLayer.picked === null) return;
+  snapshot();
+  propsLayer.remove();
+}
+
+async function confirmPlace() {
+  if (!course || !ghostPiece || !selectedKind) return;
+  if (ghostHits.length) {
+    toast(refusal(ghostHits));
+    return;
+  }
+  const piece = withDefaultState({ ...ghostPiece });
+  freeAim = null;
+  snapshot();
+  course.pieces.push(piece);
+  const i = course.pieces.length - 1;
+  const g = await makePieceGroup(piece);
+  g.userData.index = i;
+  addMarker(g, i, piece);
+  pieceGroups.push(g);
+  world.add(g);
+  void refreshSupports();
+  shelf.pushHistory(selectedKind);
+
+  // 新しい部品の口で開いているものが1つなら、そのまま次の端へ進む（同じ部品を続けて置ける）
+  const was = selectedEnd;
+  selectedEnd = null;
+  open = openPorts(catalog, course.pieces);
+  const next = open.filter((o) => o.piece === i);
+  selectedEnd = next.length === 1 ? next[0]! : null;
+  if (!selectedEnd && was) toast("出口が複数あります。続ける端を選んでください");
+  placementIdx = 0;
+  refreshEnds();
+  if (train) rebuildAll();
+  else {
+    route = buildRoute(catalog, course.pieces, undefined, undefined, undefined, runLane);
+    await showTrain();
+    showInfo();
+  }
+  await updateGhost();
+  shelf.refreshAvailability();
+  fitShadow();
+}
+
+async function undo() {
+  if (!course || mode !== "build") return;
+  const prev = undoStack.pop();
+  if (!prev) {
+    toast("これ以上戻せません");
+    return;
+  }
+  const state = JSON.parse(prev) as { pieces: PieceSave[]; props: PropSave[] };
+  course.pieces = state.pieces;
+  course.props = state.props;
+  propsLayer.setItems(course.props);
+  await afterEdit();
+}
+
+/** 部品が減った・入れ替わったときの組み直し。列車は線の始点へ戻す */
+async function resetRoute() {
+  if (!course) return;
+  route = buildRoute(catalog, course.pieces, undefined, undefined, undefined, runLane);
+  if (train && route.points.length) train.place(route, Math.min(route.length, train.length));
+  else if (!train) await showTrain();
+  lastTailSeg = tailSegOf(route);
+  // 2本目以降も、始点へ戻す
+  for (const run of extras) {
+    withRun(run, () => {
+      // 部品が減ると番号が詰まるので、口の名前から引き直す
+      runEntry = runEntry && entryFor(runEntry.port);
+      route = buildRoute(catalog, course!.pieces, runEntry, undefined, undefined, runLane);
+      if (route.points.length) train!.place(route, headStart(route, train!, 0));
+      lastTailSeg = tailSegOf(route);
+    });
+  }
+  showInfo();
+}
+
+// --- 入力 ---
+const raycaster = new THREE.Raycaster();
+let downAt: [number, number] | null = null;
+renderer.domElement.addEventListener("pointerdown", (e) => (downAt = [e.clientX, e.clientY]));
+renderer.domElement.addEventListener("pointerup", (e) => {
+  // ドラッグ（カメラ操作）はクリックとみなさない
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > (e.pointerType === "touch" ? 12 : 4) || !course) return;
+  if (e.button !== 0) return;
+  const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+
+  if (mode === "build") {
+    // 優先順は ゴースト（確定） > 端（選択）
+    if (ghost && raycaster.intersectObject(ghost, true).length) {
+      void confirmPlace();
+      return;
+    }
+    if (propsLayer.hitsGhost(raycaster)) {
+      confirmProp();
+      return;
+    }
+    const hit = raycaster.intersectObjects(endGroup.children, false).find((h) => h.object.userData.end !== undefined);
+    if (hit) {
+      selectEnd(open[hit.object.userData.end as number]!);
+      return;
+    }
+    // 端でなければ部品を選ぶ。何もない所なら選択を外す
+    const part = raycaster.intersectObjects(pieceGroups, true)[0];
+    let o: THREE.Object3D | null = part?.object ?? null;
+    while (o && o.userData.index === undefined) o = o.parent;
+    const placed = propsLayer.kind ? null : propsLayer.pickAt(raycaster);
+    if (o) {
+      propsLayer.pick(null);
+      selectPiece(o.userData.index as number);
+    } else if (placed !== null) {
+      if (selectedPiece !== null) selectPiece(selectedPiece);
+      propsLayer.pick(placed);
+    } else if (propsLayer.kind) {
+      // 町なみを持っていれば、マットを狙う
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+      const hit3 = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+      if (hit3) propsLayer.aim(world.worldToLocal(hit3));
+    } else if (selectedKind && !selectedEnd) {
+      // 部品を持っていて端を選んでいなければ、マットを狙う（自由配置）。ゴーストの高さの面を指す
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -freeLevel * LEVEL_HEIGHT);
+      const hit3 = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+      if (hit3) aimFree(world.worldToLocal(hit3));
+    } else if (selectedPiece !== null) selectPiece(selectedPiece);
+    return;
+  }
+
+  // 走行モードでは分岐を切り替える
+  const hit = raycaster.intersectObjects(pieceGroups, true)[0];
+  let o: THREE.Object3D | null = hit?.object ?? null;
+  while (o && o.userData.index === undefined) o = o.parent;
+  if (!o || !hit) return;
+  // 腕が複数ある部品では、触った所にいちばん近いレバーを回す
+  const idx = o.userData.index as number;
+  let arm = 0;
+  let best = Infinity;
+  for (const [key, m] of markers) {
+    if (!key.startsWith(`${idx}:`)) continue;
+    const d = m.getWorldPosition(new THREE.Vector3()).distanceTo(hit.point);
+    if (d < best) {
+      best = d;
+      arm = m.userData.arm as number;
+    }
+  }
+  toggleSwitch(idx, arm);
+});
+
+// --- モードと視点 ---
+const BUILD_VIEWS = [
+  { id: "oblique", label: "斜め", polar: 0.9 },
+  { id: "top", label: "真上", polar: 0.02 },
+  { id: "low", label: "低く", polar: 1.3 },
+];
+const DRIVE_VIEWS: { id: CameraMode; label: string }[] = [
+  { id: "free", label: "全体" },
+  { id: "tps", label: "追従" },
+  { id: "cab", label: "前面展望" },
+];
+
+/** 見ている点と距離と向きはそのまま、俯角だけを変える */
+function setBuildView(polar: number) {
+  const off = camera.position.clone().sub(controls.target);
+  const r = off.length();
+  const az = Math.atan2(off.x, off.z);
+  camera.position.set(
+    controls.target.x + r * Math.sin(polar) * Math.sin(az),
+    controls.target.y + r * Math.cos(polar),
+    controls.target.z + r * Math.sin(polar) * Math.cos(az),
+  );
+  camera.lookAt(controls.target);
+}
+
+function renderViewButtons() {
+  const bar = $("topCenter");
+  bar.replaceChildren();
+  const items = mode === "build" ? BUILD_VIEWS : DRIVE_VIEWS;
+  items.forEach((v, i) => {
+    const b = document.createElement("button");
+    b.textContent = v.label;
+    b.className = i === 0 ? "on" : "";
+    b.onclick = () => {
+      for (const x of bar.children) x.classList.remove("on");
+      b.classList.add("on");
+      if (mode === "build") setBuildView((v as (typeof BUILD_VIEWS)[number]).polar);
+      else rig.set((v as (typeof DRIVE_VIEWS)[number]).id);
+    };
+    bar.append(b);
+  });
+}
+
+function setMode(next: "build" | "drive") {
+  mode = next;
+  selectedPiece = null;
+  paintSelection();
+  propsLayer.clearHand();
+  document.body.classList.toggle("drive", mode === "drive");
+  $("modeLabel").textContent = mode === "build" ? "配置" : "走行";
+  $("modeSwitch").innerHTML = `${mode === "build" ? "走る" : "つくる"}<span class="key"> [Tab]</span>`;
+  ($("undo") as HTMLButtonElement).disabled = mode === "drive";
+  rig.set("free");
+  renderViewButtons();
+  refreshEnds();
+  void updateGhost();
+  applySpeed();
+}
+
+const GUIDE: [string, string][] = [
+  ["Tab", "配置と走行を切り替える"],
+  ["左ドラッグ", "視点を動かす"],
+  ["右ドラッグ", "視点を回す"],
+  ["ホイール", "寄る / 引く"],
+  ["端をクリック", "ここからつなぐ（白い玉）"],
+  ["ゴーストをクリック", "その部品を置く"],
+  ["同じ部品をもう一度 / C", "置き方を次へ回す"],
+  ["部品を選んでマットをクリック", "自由に置く場所を決める。Q / E で45°回し、PageUp / PageDown で高さ。開いた端の近くなら、そこへ継ぐ"],
+  ["部品をクリック", "選ぶ。棚から同じ形の部品を選ぶと差し替え"],
+  ["Delete", "選んだ部品・町なみを外す"],
+  ["棚「情景」で選んでマットをクリック", "町なみ（ビル・家・木・山）を置く。置いたものをクリックで選び、Q / E で回す"],
+  ["Ctrl+Z", "元に戻す"],
+  ["Esc", "端・部品の選択を外す"],
+  ["スペース / ↑↓ / R", "走る・止まる / 速度 / 向きを反転（走行）"],
+  ["N", "見る編成を次へ（複数の編成があるコース）"],
+  ["分岐レールをクリック", "自動（水色）→ 直進（緑）→ 分岐（だいだい）の順に切り替える（走行）"],
+];
+
+// --- コース ---
+async function openCourse(name: string) {
+  course = await loadCourse(base, name);
+  await startCourse();
+}
+
+/** 空のマットに、起点の直線を1本置く */
+async function newCourse() {
+  const start = [...catalog.values()].find((d) => (d as { start?: boolean }).start);
+  if (!start) return;
+  course = {
+    version: 1,
+    pieces: [
+      {
+        kind: start.id,
+        position: { x: 0, y: 0, z: 0 },
+        euler: { x: 0, y: 0, z: 0 },
+        state: "",
+        lift: 0,
+        liftFrom: "",
+        branchSet: false,
+        autoFlip: false,
+      },
+    ],
+  };
+  await startCourse();
+}
+
+async function startCourse() {
+  route = null;
+  train = null;
+  extras = [];
+  runEntry = undefined;
+  occupied = new Set();
+  world.remove(...world.children.filter((c) => c !== endGroup && c !== propsLayer.group));
+  course!.props ??= [];
+  propsLayer.clearHand();
+  propsLayer.setItems(course!.props);
+  ghost = null;
+  ghostPiece = null;
+  undoStack = [];
+  selectedEnd = null;
+  selectedPiece = null;
+  freeAim = null;
+  freeLevel = 0;
+  freeTheta = facingTheta();
+  await renderPieces();
+  paintSelection();
+  runLane = (course!.trains as { lane?: string }[] | undefined)?.[0]?.lane ?? "";
+  $<HTMLSelectElement>("lane").value = runLane;
+  route = buildRoute(catalog, course!.pieces, undefined, undefined, undefined, runLane);
+  if (route.notes.length) console.warn("ルート", route.notes);
+  showInfo();
+  refreshEnds();
+  // 1本目の電車の種類はコースが決める（棚の選択はそのあとで変えられる）
+  const first = (course!.trains as { train: string }[] | undefined)?.[0]?.train;
+  const trainSelect = $<HTMLSelectElement>("train");
+  if (first && [...trainSelect.options].some((o) => o.value === first)) trainSelect.value = first;
+  await showTrain();
+  await spawnExtras();
+  void updateGhost();
+  shelf.refreshAvailability();
+  fitShadow();
+  // コース全体が入る位置へカメラを寄せる
+  const box = new THREE.Box3().setFromObject(world);
+  const center = box.getCenter(new THREE.Vector3());
+  const radius = Math.max(8, box.getSize(new THREE.Vector3()).length() / 2);
+  controls.target.copy(center);
+  camera.position.set(center.x, center.y + radius * 1.1, center.z - radius * 1.1);
+}
+
+// --- 起動 ---
+/** 影を落とす範囲を、いまの部品と電車が入る大きさへ合わせる */
+function fitShadow() {
+  const box = new THREE.Box3();
+  for (const g of pieceGroups) box.expandByObject(g);
+  if (propsLayer.group.children.length) box.expandByObject(propsLayer.group);
+  if (train) box.expandByObject(train.root);
+  if (!box.isEmpty()) scenery.lights.fitShadow(box);
+}
+
+/** 部屋と空だけを撮って、レールの艶に映り込ませる環境にする（Unity の ReflectionProbe、強さ 0.6） */
+function bakeEnvironment() {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  world.visible = false;
+  scenery.updateWalls(new THREE.Vector3(0, 7, 0));
+  const target = pmrem.fromScene(scene, 0, 1, 1500, { size: 128, position: new THREE.Vector3(0, 7, 0) });
+  world.visible = true;
+  setSharedEnvironment(target.texture);
+  pmrem.dispose();
+}
+
+async function main() {
+  await propsLayer.load(base);
+  scenery = await buildScenery(scene, base);
+  bakeEnvironment();
+  catalog = await loadCatalog(base);
+  const { errors: routeErrors, skipped } = checkCatalog(catalog);
+  if (routeErrors.length) console.error(`経路の検算に失敗 ${routeErrors.length} 件\n` + routeErrors.join("\n"));
+  else console.log(`経路の検算 OK（${catalog.size} 種）`);
+  if (skipped.length) console.log(`対象外の道（焼き込み）${skipped.length} 本: ${skipped.join(", ")}`);
+
+  const thumb = createThumbnailer(renderer, loadModel);
+  shelf = new Shelf({
+    catalog,
+    thumb,
+    onSelect: (kind) => selectKind(kind),
+    onCycle: () => {
+      placementIdx++;
+      void updateGhost();
+    },
+    // 選んだ端に継げないものは灰色にする。端が無ければ全部使える
+    iconOfProp: (id) => thumb.object(`prop:${id}`, async () => buildProp(propsLayer.defOf(id)!)),
+    iconOfTrain: (id) =>
+      thumb.object(`train:${id}`, async () => {
+        const t = await Train.create(base, await loadTrainDef(base, id));
+        t.layOutStraight();
+        return t.root;
+      }),
+    props: () => propsLayer.defs.map((d) => ({ id: d.id, label: d.label })),
+    heldProp: () => propsLayer.kind,
+    onProp: (id) => holdProp(id),
+    trains: () => [...$<HTMLSelectElement>("train").options].map((o) => ({ id: o.value, label: o.textContent || o.value })),
+    currentTrain: () => $<HTMLSelectElement>("train").value,
+    onTrain: (id) => {
+      $<HTMLSelectElement>("train").value = id;
+      void showTrain();
+    },
+    available: (kind) =>
+      selectedPiece !== null
+        ? replaceable(course!.pieces[selectedPiece]!.kind, kind)
+        : !selectedEnd ||
+          (catalog.get(kind)?.action === "flex"
+            ? !!flexPlacement(catalog.get(kind)!, open, selectedEnd)
+            : placementsAt(catalog, open, selectedEnd, kind).length > 0),
+  });
+
+  minimap = new Minimap($<HTMLCanvasElement>("minimapCanvas"));
+
+  const courseSelect = $<HTMLSelectElement>("course");
+  const sampleNames = (await (await fetch(`${base}data/courses.json`)).json()) as string[];
+  /** 「新しいコース」・手本・保存したコースの順に選択肢を並べ直す */
+  const fillCourses = (select?: string) => {
+    courseSelect.length = 0;
+    courseSelect.add(new Option("新しいコース", ""));
+    for (const n of sampleNames) courseSelect.add(new Option(n, n));
+    for (const n of savedNames()) courseSelect.add(new Option(`★ ${n}`, `saved:${n}`));
+    if (select !== undefined) courseSelect.value = select;
+  };
+  fillCourses();
+  courseSelect.addEventListener("change", async () => {
+    const v = courseSelect.value;
+    if (v.startsWith("saved:")) {
+      const saved = loadSaved(v.slice(6));
+      if (!saved) return toast("保存したコースが読めません");
+      course = JSON.parse(JSON.stringify(saved)) as CourseSave;
+      $<HTMLInputElement>("saveName").value = v.slice(6);
+      await startCourse();
+    } else if (v) await openCourse(v);
+    else await newCourse();
+  });
+
+  const saveNameInput = $<HTMLInputElement>("saveName");
+  $("save").onclick = () => {
+    const name = saveNameInput.value.trim();
+    if (!name || !course) return toast("保存する名前を入れてください");
+    if (!saveCourse(name, JSON.parse(JSON.stringify(course)) as CourseSave)) return toast("保存できませんでした");
+    fillCourses(`saved:${name}`);
+    toast(`「${name}」を保存しました`);
+  };
+  $("export").onclick = () => {
+    if (course) downloadCourse(saveNameInput.value.trim() || "コース", course);
+  };
+  const importFile = $<HTMLInputElement>("importFile");
+  $("import").onclick = () => importFile.click();
+  importFile.addEventListener("change", async () => {
+    const file = importFile.files?.[0];
+    importFile.value = "";
+    if (!file) return;
+    const parsed = parseCourse(await file.text(), catalog);
+    if (typeof parsed === "string") return toast(`開けません: ${parsed}`);
+    course = parsed;
+    saveNameInput.value = file.name.replace(/\.json$/i, "");
+    courseSelect.value = "";
+    await startCourse();
+  });
+
+  const trainSelect = $<HTMLSelectElement>("train");
+  const trainIds = await loadTrainIds(base);
+  const trainDefs = await Promise.all(trainIds.map((id) => loadTrainDef(base, id)));
+  for (const def of trainDefs) trainSelect.add(new Option(def.label || def.id, def.id));
+  trainSelect.value = "CommuterCream";
+  trainSelect.addEventListener("change", () => showTrain());
+
+  const guideList = $("guideList");
+  for (const [k, v] of GUIDE) {
+    const dt = document.createElement("dt");
+    dt.textContent = k;
+    const dd = document.createElement("dd");
+    dd.textContent = v;
+    guideList.append(dt, dd);
+  }
+  const togglePanel = (id: string) => $(id).classList.toggle("open");
+  $("menu").onclick = () => togglePanel("menuPanel");
+  $("guide").onclick = () => togglePanel("guidePanel");
+  $("undo").onclick = () => void undo();
+  $("remove").onclick = () => void deletePiece();
+  $("lane").addEventListener("change", () => {
+    runLane = $<HTMLSelectElement>("lane").value;
+    void resetRoute();
+  });
+  $("nextTrain").onclick = () => nextTrain();
+  $("pickSpan").onclick = () => {
+    spanPicking = true;
+    toast("区間の終わりの部品をクリックしてください");
+  };
+  // キーが無い端末のための、画面のボタン（Q/E・PageUp/PageDown・Esc と同じ）
+  const turnHeld = (step: number) => (propsLayer.kind || propsLayer.picked !== null ? propsLayer.turn(step) : turnFree(step));
+  $("rotL").onclick = () => turnHeld(-1);
+  $("rotR").onclick = () => turnHeld(1);
+  $("levUp").onclick = () => {
+    freeLevel += 1;
+    void updateGhost();
+  };
+  $("levDown").onclick = () => {
+    freeLevel = Math.max(0, freeLevel - 1);
+    void updateGhost();
+  };
+  $("handCancel").onclick = () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
+  $("copyUp").onclick = () => void copyIslandUp();
+  $("copyNext").onclick = () => void copyContinue();
+  $("liftUp").onclick = () => void liftIsland(1);
+  $("liftDown").onclick = () => void liftIsland(-1);
+  $("tunnel").onclick = () => void toggleWorn("Tunnel");
+  $("bridge").onclick = () => void toggleWorn("Bridge");
+  $("modeSwitch").onclick = () => setMode(mode === "build" ? "drive" : "build");
+
+  $("go").addEventListener("click", () => {
+    running = !running;
+    if (running && speed === 0) speed = train?.def.presetSpeed ?? 4;
+    applySpeed();
+  });
+  // 向きを反転する。止まっている間は前進の既定速度から始める
+  $("reverse").addEventListener("click", () => setSpeed(speed === 0 ? -(train?.def.presetSpeed ?? 4) : -speed));
+  $("speed").addEventListener("input", (e) => setSpeed(Number((e.target as HTMLInputElement).value)));
+
+  addEventListener("keydown", (e) => {
+    const el = e.target as HTMLElement | null;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+    const step = train?.def.speedStep ?? 1;
+    if (e.code === "Tab") {
+      e.preventDefault();
+      $("modeSwitch").click();
+    } else if (e.code === "F1") {
+      e.preventDefault();
+      togglePanel("guidePanel");
+    } else if (mode === "build") {
+      if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") {
+        e.preventDefault();
+        void undo();
+      } else if (e.code === "KeyQ" || e.code === "KeyE") {
+        const step = e.code === "KeyQ" ? -1 : 1;
+        if (propsLayer.kind || propsLayer.picked !== null) propsLayer.turn(step);
+        else turnFree(step);
+      }
+      else if (e.code === "PageUp" || e.code === "PageDown") {
+        freeLevel = Math.max(0, freeLevel + (e.code === "PageUp" ? 1 : -1));
+        void updateGhost();
+      } else if (e.code === "Escape") {
+        freeAim = null;
+        void updateGhost();
+        selectEnd(null);
+        if (selectedPiece !== null) selectPiece(selectedPiece);
+        if (propsLayer.kind || propsLayer.picked !== null) {
+          propsLayer.clearHand();
+          shelf.redraw();
+        }
+      } else if (e.code === "Delete" || e.code === "Backspace") {
+        if (propsLayer.picked !== null) deleteProp();
+        else void deletePiece();
+      }
+      else if (e.code === "KeyC") {
+        placementIdx++;
+        void updateGhost();
+      }
+    } else if (e.code === "Space") {
+      e.preventDefault();
+      $("go").click();
+    } else if (e.code === "KeyR") $("reverse").click();
+    else if (e.code === "KeyN") nextTrain();
+    else if (e.code === "ArrowUp") setSpeed(speed + step);
+    else if (e.code === "ArrowDown") setSpeed(speed - step);
+  });
+
+  setMode("build");
+  courseSelect.value = "円";
+  await openCourse("円");
+  const loading = document.getElementById("loading");
+  if (loading) {
+    loading.classList.add("hide");
+    setTimeout(() => loading.remove(), 300);
+  }
+}
+main().catch((err) => {
+  console.error(err);
+  const msg = document.getElementById("loadingMsg");
+  if (msg) msg.textContent = "読み込みに失敗しました。ページを再読み込みするか、WebGL 対応ブラウザでお試しください。";
+});

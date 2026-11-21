@@ -1,0 +1,18 @@
+{
+  "id": "OuterRight",
+  "label": "複線外側右カーブ",
+  "categories": ["Double"],
+  "order": 425,
+  "model": "Rails/OuterRight/Track_Curve_Outer_Right_45",
+  "mirror": "OuterLeft",
+  "flip": "OuterLeft",
+  "action": "",
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],                  "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [-2.245515, 0, -5.421152], "euler": [0, 45, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 6.021386, "turn": 1, "radius": 7.666667 } ] }
+  ]
+}

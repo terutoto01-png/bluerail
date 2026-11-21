@@ -1,0 +1,17 @@
+{
+  "id": "HalfStraight",
+  "label": "1/2直線 →",
+  "categories": ["Basic"],
+  "order": 120,
+  "model": "Rails/HalfStraight/Track_Straight_Half",
+  "mirror": "HalfStraight",
+  "flip": "HalfStraight",
+  "action": "",
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],  "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [0, 0, -3], "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End", "segments": [ { "length": 3.0, "turn": 0 } ] }
+  ]
+}

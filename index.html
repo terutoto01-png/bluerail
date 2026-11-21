@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>つなげて！青レール！</title>
+<meta name="description" content="ブラウザ上で青いレールをつなげて電車を走らせる 3D レイアウトシミュレーター">
+<meta property="og:title" content="つなげて！青レール！">
+<meta property="og:description" content="ブラウザ上で青いレールをつなげて電車を走らせる 3D レイアウトシミュレーター">
+<meta property="og:type" content="website">
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
+<style>
+  /* 色は Unity 版の UiPalette.json（windowlight.*）と同じ役割名 */
+  :root{
+    --surface:#FFFEF9; --ink:#273A35; --selected:#E2EADD; --primary:#295A46; --on-primary:#FFFEF9;
+    --part-selected:#F5DF91; --secondary:#4C5A52; --shadow:rgba(39,58,53,.12);
+    --font:"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#d6bd98;font-family:var(--font);color:var(--ink);font-size:18px}
+  canvas{display:block;touch-action:none}
+  button,select{font:inherit;color:inherit}
+  button{border:0;background:none;cursor:pointer;padding:0}
+  button:disabled{color:var(--secondary);opacity:.45;cursor:default}
+
+  .card{position:fixed;background:var(--surface);border-radius:10px;box-shadow:0 2px 8px var(--shadow)}
+  .bar{display:flex;align-items:center;height:48px;padding:0 8px;gap:2px}
+  .bar button,.bar .mode{height:32px;padding:0 14px;border-radius:7px;white-space:nowrap}
+  .bar button:hover:not(:disabled){background:var(--selected)}
+  .bar .mode{display:flex;align-items:center;font-weight:700}
+  .bar .mode::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--part-selected);margin-right:8px}
+  .seg button.on{background:var(--part-selected)}
+
+  #topLeft{top:18px;left:18px}
+  /* 部品や町なみを持っているときだけ。回す・高さ・やめる（キーが無い端末のため） */
+  #handBar{top:76px;right:18px;display:none}
+  body.hand #handBar{display:flex}
+  body.drive #handBar{display:none}
+  /* 部品を選んでいるときだけ、左上の下に出る */
+  #pieceBar{top:76px;left:18px;display:none}
+  body.picked #pieceBar{display:flex}
+  body.drive #pieceBar{display:none}
+  #topCenter{top:18px;left:50%;transform:translateX(-50%)}
+  #topRight{position:fixed;top:18px;right:18px;display:flex;gap:18px}
+  #topRight .card{position:static}
+  #guide{padding:0 18px;height:48px}
+  #modeSwitch{height:48px;padding:0 22px;border-radius:10px;background:var(--primary);color:var(--on-primary);box-shadow:0 2px 8px var(--shadow)}
+
+  /* 部品の棚 */
+  #shelf{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);width:min(920px,calc(100vw - 380px));min-width:480px;display:flex;flex-direction:column;gap:4px}
+  #shelf .panel{position:static}
+  #groups{display:flex;justify-content:space-around;height:44px;align-items:center;padding:0 12px}
+  #groups button{height:32px;padding:0 24px;border-radius:7px;font-weight:700}
+  #groups button.on{background:var(--selected)}
+  #drawers{display:flex;gap:2px;padding:10px 12px 0}
+  #drawers button{height:32px;padding:0 14px;border-radius:7px;font-size:16px}
+  #drawers button.on{background:var(--part-selected)}
+  #tiles{display:flex;gap:2px;overflow-x:auto;padding:6px 12px 8px;min-height:132px;scrollbar-width:thin;scrollbar-color:var(--primary) var(--selected)}
+  .tile{position:relative;flex:0 0 128px;height:118px;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+  .tile:hover{background:var(--selected)}
+  .tile.on{background:var(--part-selected)}
+  .tile.off{opacity:.38}
+  .tile img{width:64px;height:64px;object-fit:contain}
+  .tile span{font-size:18px;white-space:nowrap}
+  .tile .star{position:absolute;top:4px;right:6px;width:22px;height:22px;border-radius:50%;background:#e3e4e1;color:#fff;font-size:13px;line-height:22px}
+  .tile .star.on{background:var(--part-selected);color:#b8860b}
+  .tile.text span{font-size:15px;white-space:normal;text-align:center;padding:0 8px;word-break:break-all}
+  .empty{margin:auto;color:var(--secondary);font-size:16px}
+
+  /* 運転帯 */
+  #driveBar{left:50%;bottom:20px;transform:translateX(-50%);display:none;align-items:center;gap:10px;padding:0 14px;height:56px}
+  #driveBar button{height:36px;min-width:44px;border-radius:8px;font-size:20px;white-space:nowrap}
+  #driveBar #nextTrain{font-size:15px;padding:0 10px}
+  #driveBar button:hover{background:var(--selected)}
+  #speed{width:160px;accent-color:var(--primary)}
+  #speedText{min-width:6.5em;font-variant-numeric:tabular-nums}
+  body.drive #driveBar{display:flex}
+  body.drive #shelf{display:none}
+
+  /* メニューと案内 */
+  .pop{display:none;top:76px;padding:14px 16px;gap:10px;flex-direction:column;font-size:16px;max-width:360px}
+  .pop.open{display:flex}
+  #menuPanel{left:18px}
+  #guidePanel{right:18px}
+  .pop label{display:flex;flex-direction:column;gap:4px;color:var(--secondary)}
+  .pop select{height:34px;border:1px solid #cfd6ca;border-radius:7px;background:#fff;padding:0 8px;font-size:16px}
+  .pop input[type=text]{height:34px;border:1px solid #cfd6ca;border-radius:7px;background:#fff;padding:0 8px;font-size:16px}
+  .pop .row{display:flex;flex-wrap:wrap;gap:6px}
+  .pop .row button{height:34px;padding:0 12px;border-radius:7px;background:var(--selected)}
+  .pop .row button:hover{background:var(--part-selected)}
+  .pop dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 14px}
+  .pop dt{font-weight:700}
+  .pop dd{margin:0;color:var(--secondary)}
+  #info{color:var(--secondary);font-size:15px}
+  /* ミニマップ（左下）と、端への案内 */
+  #minimap{left:18px;bottom:20px;padding:6px 8px 8px;display:flex;flex-direction:column;gap:2px}
+  #minimap span{font-size:13px;color:var(--secondary)}
+  #minimap canvas{display:block;border-radius:6px}
+  #prompt{position:fixed;left:50%;bottom:calc(20px + 266px);transform:translateX(-50%);background:var(--ink);color:var(--surface);
+          padding:6px 16px;border-radius:8px;font-size:16px;pointer-events:none;display:none}
+  body.drive #prompt{display:none !important}
+  /* 狭い画面・指で触る端末 */
+  @media (max-width:900px), (pointer:coarse){
+    html,body{font-size:15px}
+    .key{display:none}
+    #topLeft .mode{display:none}
+    #pieceBar .mode,#handBar .mode{display:none}
+    .bar{height:44px;padding:0 4px}
+    .bar button,.bar .mode{padding:0 9px;height:34px}
+    #topLeft{top:8px;left:8px}
+    #topRight{top:8px;right:8px;gap:8px}
+    #guide{padding:0 10px;height:44px}
+    #modeSwitch{height:44px;padding:0 12px}
+    #topCenter{top:60px}
+    #pieceBar{top:60px;left:8px;max-width:calc(100vw - 16px);flex-wrap:wrap;height:auto;min-height:44px;padding:4px}
+    body.picked #topCenter{display:none}
+    #handBar{top:112px;right:8px}
+    #shelf{width:calc(100vw - 16px);min-width:0;bottom:8px}
+    #groups{height:38px}
+    #groups button{padding:0 10px}
+    #drawers{overflow-x:auto}
+    #drawers button{padding:0 8px;font-size:14px;white-space:nowrap}
+    #tiles{min-height:100px}
+    .tile{flex:0 0 92px;height:90px}
+    .tile img{width:48px;height:48px}
+    .tile span{font-size:14px}
+    #minimap{display:none}
+    #driveBar{bottom:8px;max-width:calc(100vw - 16px);gap:4px;padding:0 6px;overflow-x:auto}
+    #speed{width:90px}
+    #speedText{min-width:5.5em;font-size:14px}
+    #prompt{bottom:calc(8px + 200px);font-size:14px;max-width:calc(100vw - 24px);white-space:normal;text-align:center}
+    body #toast{top:150px;max-width:calc(100vw - 24px)}
+    .pop{top:60px;max-width:calc(100vw - 16px)}
+    #menuPanel{left:8px}
+    #guidePanel{right:8px}
+  }
+  #toast{position:fixed;left:50%;top:132px;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:8px 16px;border-radius:8px;font-size:16px;opacity:0;pointer-events:none;transition:opacity .2s}
+  #toast.show{opacity:1}
+  #credits{border-top:1px solid #e2e6dc;padding-top:8px;font-size:12px;color:var(--secondary);line-height:1.5}
+  #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(214,189,152,.92);z-index:100;transition:opacity .25s}
+  #loading.hide{opacity:0;pointer-events:none}
+  #loading .box{background:var(--surface);color:var(--ink);padding:20px 28px;border-radius:12px;box-shadow:0 4px 20px var(--shadow);text-align:center;max-width:min(420px,calc(100vw - 32px))}
+  #loading .title{font-weight:700;font-size:20px;margin-bottom:6px}
+  #loading .msg{font-size:15px;color:var(--secondary)}
+</style>
+</head>
+<body>
+<div id="topLeft" class="card bar">
+  <span id="modeLabel" class="mode">配置</span>
+  <button id="menu">メニュー</button>
+  <button id="undo" title="Ctrl+Z">元に戻す<span class="key"> [Ctrl+Z]</span></button>
+</div>
+<div id="pieceBar" class="card bar">
+  <span class="mode">選んだ部品</span>
+  <button id="remove" title="選んだ部品を外す" disabled>削除 [Del]</button>
+  <button id="pickSpan" title="もう1つ部品をクリックして、そこまでの区間を選ぶ（上下・複製の対象になる）">区間を選ぶ</button>
+  <button id="liftUp" title="つながった全体を1階層上げる">全体 ▲</button>
+  <button id="liftDown" title="つながった全体を1階層下げる">全体 ▼</button>
+  <button id="copyUp" title="つながった全体を、1階層上へ複製する（タワー・螺旋を積む）">全体を上へ複製</button>
+  <button id="copyNext" title="つながった全体を、出口の先へもう1組つなぐ（開いた端が入口と出口の2つのとき）">続きに複製</button>
+  <button id="tunnel" title="選んだ部品にトンネルをかぶせる／外す" disabled>トンネル</button>
+  <button id="bridge" title="選んだ部品に鉄橋をかぶせる／外す" disabled>鉄橋</button>
+</div>
+<div id="topCenter" class="card bar seg"></div>
+<div id="topRight">
+  <button id="guide" class="card">操作ガイド<span class="key"> [F1]</span></button>
+  <button id="modeSwitch">走る<span class="key"> [Tab]</span></button>
+</div>
+
+<div id="handBar" class="card bar">
+  <span class="mode">持っている部品</span>
+  <button id="rotL" title="左へ45°（Q）">↺</button>
+  <button id="rotR" title="右へ45°（E）">↻</button>
+  <button id="levUp" title="1階層上（PageUp）">高く</button>
+  <button id="levDown" title="1階層下（PageDown）">低く</button>
+  <button id="handCancel" title="持つのをやめる（Esc）">やめる</button>
+</div>
+
+<div id="menuPanel" class="card pop">
+  <label>コース<select id="course"></select></label>
+  <label>電車<select id="train"></select></label>
+  <label>見ている編成の車線<select id="lane"><option value="">中央（ふつう）</option><option value="L">左車線（スリム）</option><option value="R">右車線（スリム）</option></select></label>
+  <label>保存する名前<input id="saveName" type="text" maxlength="30" placeholder="わたしのコース"></label>
+  <div class="row"><button id="save">この名前で保存</button><button id="export">ファイルへ書き出す</button><button id="import">ファイルを開く</button></div>
+  <input id="importFile" type="file" accept=".json,application/json" hidden>
+  <div id="info"></div>
+  <div id="credits">非公式・無料・広告なし（実在の玩具・鉄道会社とは無関係です）<br>3D: Three.js (MIT) / 家具: Kenney (CC0)</div>
+</div>
+<div id="guidePanel" class="card pop">
+  <dl id="guideList"></dl>
+</div>
+
+<div id="shelf">
+  <div class="card panel" id="groups"></div>
+  <div class="card panel">
+    <div id="drawers"></div>
+    <div id="tiles"></div>
+  </div>
+</div>
+
+<div id="driveBar" class="card">
+  <button id="go" title="走る / 止まる（スペース）">⏸</button>
+  <button id="reverse" title="進む向きを反転（R）">⇄</button>
+  <button id="nextTrain" title="見る編成を次へ（N）">次の編成<span class="key"> [N]</span></button>
+  <input id="speed" type="range" min="-8" max="8" step="0.1" title="速度（↑↓）。負は後退">
+  <span id="speedText"></span>
+</div>
+<div id="minimap" class="card"><span>コース全体</span><canvas id="minimapCanvas"></canvas></div>
+<div id="prompt">部品を選んで、線路をつなげる</div>
+<div id="toast"></div>
+<div id="loading" role="status" aria-live="polite">
+  <div class="box">
+    <div class="title">つなげて！青レール！</div>
+    <div class="msg" id="loadingMsg">線路と電車を読み込んでいます…</div>
+  </div>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

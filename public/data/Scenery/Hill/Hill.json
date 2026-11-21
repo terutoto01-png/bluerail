@@ -1,0 +1,15 @@
+{
+  "id": "Hill",
+  "label": "山",
+  "at": "free",
+  "byHand": true,
+  "build": "hill",
+  "size": [
+    6.0,
+    6.0
+  ],
+  "height": 3.33333,
+  "colours": [
+    "scenery.town.hill"
+  ]
+}

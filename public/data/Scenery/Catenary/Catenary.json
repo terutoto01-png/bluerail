@@ -1,0 +1,8 @@
+{
+  "id": "Catenary",
+  "label": "架線柱",
+  "model": "Scenery/Catenary/Scenery_Catenary_Post",
+  "at": "joint",
+  "side": "right",
+  "straightOnly": false
+}

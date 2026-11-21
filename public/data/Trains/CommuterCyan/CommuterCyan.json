@@ -1,0 +1,41 @@
+{
+  "id": "CommuterCyan",
+  "label": "みずいろの電車",
+  "model": "Trains/CommuterCyan/Commuter_Cyan",
+  "heightOffset": 0.160847,
+  "acceleration": 3.0,
+  "presetSpeed": 4.6,
+  "speedStep": 1.4,
+  "maxSpeed": 7.2,
+  "cameraTpsBack": 10.5,
+  "cameraTpsUp": 8.0,
+  "cameraCabUp": 0.95,
+  "cameraTangentSpan": 4.0,
+  "cars": 3,
+  "consist": [
+    { "model": "Trains/CommuterCyan/Commuter_Cyan" },
+    { "model": "Trains/CommuterCyan/Commuter_Cyan_Middle", "repeat": true },
+    { "model": "Trains/CommuterCyan/Commuter_Cyan", "flip": true }
+  ],
+  "couplingGap": 0.15,
+  "sounds": [
+    {
+      "name": "run",
+      "layers": [
+        { "clip": "Sounds/tetsuon/209_65j", "at": 0.55 },
+        { "clip": "Sounds/tetsuon/209_80j", "at": 0.80 },
+        { "clip": "Sounds/tetsuon/209_90j", "at": 1.00 }
+      ],
+      "volume": 0.55,
+      "volumeIdle": 0.0,
+      "pitch": 0.78,
+      "pitchTop": 0.92,
+      "lowpass": 1400.0,
+      "reverb": 0.30,
+      "spatialBlend": 1.0,
+      "spread": 60.0,
+      "minDistance": 8.0,
+      "maxDistance": 110.0
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "id": "CatenaryDouble",
+  "label": "複線架線柱",
+  "model": "Scenery/CatenaryDouble/Scenery_Catenary_Double",
+  "at": "joint",
+  "side": "both",
+  "straightOnly": false
+}

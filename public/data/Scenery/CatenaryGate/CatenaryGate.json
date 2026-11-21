@@ -1,0 +1,8 @@
+{
+  "id": "CatenaryGate",
+  "label": "門型架線柱",
+  "model": "Scenery/CatenaryGate/Scenery_Catenary_Gate",
+  "at": "joint",
+  "side": "both",
+  "straightOnly": false
+}

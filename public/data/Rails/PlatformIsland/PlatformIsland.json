@@ -1,0 +1,101 @@
+{
+  "id": "PlatformIsland",
+  "label": "島式ホーム",
+  "platformSide": "island",
+  "categories": [
+    "Station"
+  ],
+  "order": 620,
+  "model": "Rails/PlatformIsland/Track_PlatformIsland",
+  "mirror": "PlatformIsland",
+  "flip": "PlatformIsland",
+  "flipShift": -1.333333,
+  "action": "stop",
+  "stopAt": 3.0,
+  "stopSeconds": 3.0,
+  "stopAlign": "nose",
+  "stopFrom": "entry",
+  "passWhenPlaced": true,
+  "ports": [
+    {
+      "id": "Start",
+      "face": "a",
+      "position": [
+        -0.833333,
+        0,
+        0
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "Start2",
+      "face": "a",
+      "position": [
+        2.166667,
+        0,
+        0
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "End",
+      "face": "b",
+      "position": [
+        -0.833333,
+        0,
+        -3
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "End2",
+      "face": "b",
+      "position": [
+        2.166667,
+        0,
+        -3
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paths": [
+    {
+      "id": "through",
+      "from": "Start",
+      "to": "End",
+      "segments": [
+        {
+          "length": 3.0,
+          "turn": 0
+        }
+      ]
+    },
+    {
+      "id": "through2",
+      "from": "Start2",
+      "to": "End2",
+      "segments": [
+        {
+          "length": 3.0,
+          "turn": 0
+        }
+      ]
+    }
+  ]
+}

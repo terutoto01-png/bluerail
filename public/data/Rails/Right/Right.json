@@ -1,0 +1,19 @@
+{
+  "id": "Right",
+  "label": "右カーブ",
+  "arrow": "right",
+  "categories": ["Basic"],
+  "order": 150,
+  "model": "Rails/Right/Track_Curve_Right_45",
+  "mirror": "Left",
+  "flip": "Left",
+  "action": "",
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],                  "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [-1.757359, 0, -4.242641], "euler": [0, 45, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 4.712389, "turn": 1, "radius": 6.0 } ] }
+  ]
+}

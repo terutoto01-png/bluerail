@@ -1,0 +1,28 @@
+{
+  "id": "AutoPoint",
+  "label": "自動ポイント 3",
+  "categories": ["Point"],
+  "order": 235,
+  "model": "Rails/AutoPoint/Track_Auto_Point",
+  "mirror": "AutoPoint",
+  "flip": "AutoPoint",
+  "action": "point",
+  "leverAngle": 52.0,
+  "ports": [
+    { "id": "Start",  "face": "a", "position": [0, 0, 0], "euler": [0, 0, 0] },
+    { "id": "End",    "face": "b", "position": [0, 0, -9.0], "euler": [0, 0, 0] },
+    { "id": "End2",   "face": "b", "position": [-1.666667, 0, -9.0], "euler": [0, 0, 0] },
+    { "id": "Branch", "face": "c", "position": [1.757359, 0, -7.242641], "euler": [0, 315, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 9.0 } ] },
+    { "id": "double",  "from": "Start", "to": "End2",
+      "segments": [ { "length": 3.0 },
+                    { "length": 3.152015, "turn": 1, "radius": 5.816667 },
+                    { "length": 3.152015, "turn": -1, "radius": 5.816667 } ] },
+    { "id": "branch",  "from": "Start", "to": "Branch",
+      "segments": [ { "length": 3.0 },
+                    { "length": 4.712389, "turn": -1, "radius": 6.0 } ] }
+  ]
+}

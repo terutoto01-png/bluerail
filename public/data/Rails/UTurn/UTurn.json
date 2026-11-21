@@ -1,0 +1,22 @@
+{
+  "id": "UTurn",
+  "label": "Uターン",
+  "categories": ["Double"],
+  "order": 430,
+  "model": "Rails/UTurn/Track_UTurn",
+  "mirror": "UTurn",
+  "flip": "UTurn",
+  "action": "",
+  "ports": [
+    { "id": "Start",  "face": "a", "position": [-0.833333, 0, 0], "euler": [0, 0, 0] },
+    { "id": "Start2", "face": "a", "position": [0.833333, 0, 0],  "euler": [0, 180, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "Start2",
+      "segments": [
+        { "length": 3.030458,  "turn": 1,  "radius": 3.918505 },
+        { "length": 12.762689, "turn": -1, "radius": 2.722222 },
+        { "length": 3.030458,  "turn": 1,  "radius": 3.918505 }
+      ] }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "id": "PlatformRight",
+  "label": "ホーム 右",
+  "platformSide": "right",
+  "categories": [
+    "Station"
+  ],
+  "order": 610,
+  "model": "Rails/PlatformRight/Track_PlatformRight",
+  "mirror": "PlatformLeft",
+  "flip": "PlatformLeft",
+  "action": "stop",
+  "ports": [
+    {
+      "id": "Start",
+      "face": "a",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "End",
+      "face": "b",
+      "position": [
+        0,
+        0,
+        -3
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paths": [
+    {
+      "id": "through",
+      "from": "Start",
+      "to": "End",
+      "segments": [
+        {
+          "length": 3.0,
+          "turn": 0
+        }
+      ]
+    }
+  ],
+  "stopAt": 3.0,
+  "stopSeconds": 3.0,
+  "passWhenPlaced": true,
+  "stopAlign": "nose",
+  "stopFrom": "entry"
+}

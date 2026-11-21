@@ -1,0 +1,54 @@
+{
+  "id": "ElevatedStraight",
+  "label": "高架直線",
+  "categories": ["Level"],
+  "order": 360,
+  "model": "Rails/ElevatedStraight/Track_Elevated_Straight",
+  "mirror": "ElevatedStraight",
+  "flip": "ElevatedStraight",
+  "action": "",
+  "decorations": ["Catenary"],
+  "ports": [
+    {
+      "id": "Start",
+      "face": "a",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "End",
+      "face": "b",
+      "position": [
+        0,
+        0,
+        -6
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paths": [
+    {
+      "id": "through",
+      "from": "Start",
+      "to": "End",
+      "segments": [
+        {
+          "length": 6.0,
+          "turn": 0
+        }
+      ]
+    }
+  ]
+}

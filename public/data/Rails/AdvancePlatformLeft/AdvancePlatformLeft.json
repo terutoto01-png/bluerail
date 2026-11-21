@@ -1,0 +1,63 @@
+{
+  "id": "AdvancePlatformLeft",
+  "label": "AR ホーム 左",
+  "platformSide": "left",
+  "categories": [
+    "Station",
+    "Advance"
+  ],
+  "order": 631,
+  "model": "Rails/AdvancePlatformLeft/Track_AdvancePlatformLeft",
+  "mirror": "AdvancePlatformRight",
+  "flip": "AdvancePlatformRight",
+  "action": "stop",
+  "stopAt": 3.0,
+  "stopSeconds": 3.0,
+  "stopAlign": "nose",
+  "stopFrom": "entry",
+  "passWhenPlaced": true,
+  "stopLane": "L",
+  "ports": [
+    {
+      "id": "Start",
+      "face": "a",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "End",
+      "face": "b",
+      "position": [
+        0,
+        0,
+        -3
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paths": [
+    {
+      "id": "through",
+      "from": "Start",
+      "to": "End",
+      "segments": [
+        {
+          "length": 3.0,
+          "turn": 0
+        }
+      ]
+    }
+  ]
+}

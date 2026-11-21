@@ -1,0 +1,19 @@
+{
+  "id": "Straight",
+  "label": "直線 →",
+  "arrow": "straight",
+  "categories": ["Basic"],
+  "order": 110,
+  "model": "Rails/Straight/Track_Straight",
+  "mirror": "Straight",
+  "flip": "Straight",
+  "action": "",
+  "start": true,
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],  "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [0, 0, -6], "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End", "segments": [ { "length": 6.0, "turn": 0 } ] }
+  ]
+}

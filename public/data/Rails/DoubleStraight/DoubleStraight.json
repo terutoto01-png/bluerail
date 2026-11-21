@@ -1,0 +1,17 @@
+{
+  "id": "DoubleStraight",
+  "label": "2倍直線 →",
+  "categories": ["Basic"],
+  "order": 100,
+  "model": "Rails/DoubleStraight/Track_Straight_Double",
+  "mirror": "DoubleStraight",
+  "flip": "DoubleStraight",
+  "action": "",
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],   "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [0, 0, -12], "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End", "segments": [ { "length": 12.0, "turn": 0 } ] }
+  ]
+}

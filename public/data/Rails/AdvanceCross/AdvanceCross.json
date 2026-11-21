@@ -1,0 +1,34 @@
+{
+  "id": "AdvanceCross",
+  "label": "スリム クロスポイント",
+  "categories": ["Advance"],
+  "order": 610,
+  "model": "Rails/AdvanceCross/Track_Advance_Cross",
+  "mirror": "AdvanceCross",
+  "flip": "AdvanceCross",
+  "action": "point",
+  "onePick": true,
+  "leverAngle": 0.0,
+  "pickNames": ["直線", "交差"],
+  "pickGlyphs": ["直", "交"],
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],  "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [0, 0, -6], "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 6.0, "turn": 0 } ] },
+
+    { "id": "throughL", "from": "Start", "to": "End", "lane": "L",
+      "segments": [ { "length": 6.0, "turn": 0 } ] },
+    { "id": "throughR", "from": "Start", "to": "End", "lane": "R",
+      "segments": [ { "length": 6.0, "turn": 0 } ] },
+
+    { "id": "crossLR", "from": "Start", "to": "End", "lane": "L", "laneTo": "R",
+      "segments": [ { "length": 3.015451, "turn": 1,  "radius": 17.184576 },
+                    { "length": 3.015451, "turn": -1, "radius": 17.184576 } ] },
+    { "id": "crossRL", "from": "Start", "to": "End", "lane": "R", "laneTo": "L",
+      "segments": [ { "length": 3.015451, "turn": -1, "radius": 17.184576 },
+                    { "length": 3.015451, "turn": 1,  "radius": 17.184576 } ] }
+  ]
+}

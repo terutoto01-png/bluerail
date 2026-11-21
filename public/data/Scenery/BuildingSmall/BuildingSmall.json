@@ -1,0 +1,18 @@
+{
+  "id": "BuildingSmall",
+  "label": "ビル 小",
+  "at": "free",
+  "byHand": true,
+  "build": "block",
+  "size": [
+    1.5,
+    1.5
+  ],
+  "height": 3.33333,
+  "storey": 0.83333,
+  "colours": [
+    "scenery.town.wall",
+    "scenery.town.roof",
+    "scenery.town.window"
+  ]
+}
