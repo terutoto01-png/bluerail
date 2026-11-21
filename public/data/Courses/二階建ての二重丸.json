@@ -1150,18 +1150,21 @@
       "train": "CommuterCyan",
       "at": 0,
       "port": "Start",
+      "piece": 0,
       "lane": ""
     },
     {
       "train": "CommuterLime",
       "at": 18,
-      "port": "Start2",
+      "port": "Start",
+      "piece": 22,
       "lane": ""
     },
     {
       "train": "CommuterCream",
-      "at": 36,
+      "at": 18,
       "port": "Start",
+      "piece": 44,
       "lane": ""
     }
   ],

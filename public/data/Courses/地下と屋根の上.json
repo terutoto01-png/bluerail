@@ -442,12 +442,14 @@
    "train": "CommuterCream",
    "at": 0,
    "port": "Start",
+   "piece": 0,
    "lane": ""
   },
   {
    "train": "ExpressGreen",
    "at": 12,
    "port": "Start",
+   "piece": 12,
    "lane": ""
   }
  ],

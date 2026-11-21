@@ -449,6 +449,7 @@ async function showTrain(keepPosition = false) {
   world.add(t.root);
   const at = (course?.trains as { at: number }[] | undefined)?.[0]?.at ?? 0;
   t.place(r, prevS !== null ? Math.min(r.length, Math.max(t.length, prevS)) : headStart(r, t, at));
+  lastTailSeg = tailSegOf(r);
   $<HTMLInputElement>("speed").max = String(t.def.maxSpeed);
   $<HTMLInputElement>("speed").min = String(-t.def.maxSpeed);
   speed = t.def.presetSpeed;
@@ -605,16 +606,19 @@ function updateTrainUi() {
   ($("removeTrain") as HTMLButtonElement).disabled = !hasMulti;
 }
 
-/** コース保存データの trains 配列を、現在の全編成と同期する */
+/** コース保存データの trains 配列を、現在の全編成（実際の路線・位置）と同期する */
 function syncCourseTrains() {
   if (!course || !train || !route) return;
-  const entryOf = (t: Train, r: Route, e: Run["entry"], lane: string) => ({
-    train: t.def.id,
-    at: Math.max(0, Math.round((r.canonicalHead(t.s, t.length) - t.length) * 10) / 10),
-    port: e?.port ?? "Start",
-    piece: e?.piece,
-    lane,
-  });
+  const entryOf = (t: Train, r: Route, e: Run["entry"], lane: string) => {
+    const seg0 = r.segs[0];
+    return {
+      train: t.def.id,
+      at: Math.max(0, Math.round((r.canonicalHead(t.s, t.length) - t.length) * 10) / 10),
+      port: seg0?.entry ?? e?.port ?? "Start",
+      piece: seg0?.piece ?? e?.piece,
+      lane,
+    };
+  };
   course.trains = [
     entryOf(train, route, runEntry, runLane),
     ...extras.map((x) => entryOf(x.train, x.route, x.entry, x.lane)),
@@ -946,12 +950,33 @@ async function spawnExtras() {
   );
   if (gen !== renderGeneration) return;
   for (const { spec, train: t } of loaded) {
-    // 口が見つからなければ、既定の始点から数える（同じ線の上に並ぶ）
-    const entry = entryFor(spec.port, spec.piece);
-    const lane = spec.lane ?? "";
-    const r = buildRoute(catalog, course!.pieces, entry, undefined, undefined, lane);
+    const lane = "";
+    let entry = spec.piece !== undefined ? entryFor(spec.port, spec.piece) : undefined;
+    let r: Route;
+    let spawnS: number;
+    if (entry) {
+      r = buildRoute(catalog, course!.pieces, entry, undefined, undefined, lane);
+      spawnS = headStart(r, t, spec.at);
+    } else {
+      // piece 未指定の旧保存データ: 空いている別路線（2段目など）があればそこへ優先配置する
+      const existing = [
+        ...(train && route ? [{ route, headS: train.s, length: train.length }] : []),
+        ...extras.map((x) => ({ route: x.route, headS: x.train.s, length: x.train.length })),
+      ];
+      const auto = planAutoTrainSpawn(catalog, course!.pieces, existing, t.length, lane);
+      const fallbackEntry = entryFor(spec.port);
+      if (auto && (auto.emptyIsland || !fallbackEntry)) {
+        entry = auto.entry;
+        r = auto.route;
+        spawnS = auto.headS;
+      } else {
+        entry = fallbackEntry;
+        r = buildRoute(catalog, course!.pieces, entry, undefined, undefined, lane);
+        spawnS = headStart(r, t, spec.at);
+      }
+    }
     if (!r.points.length) continue;
-    t.place(r, headStart(r, t, spec.at));
+    t.place(r, spawnS);
     t.speed = 0;
     world.add(t.root);
     extras.push({ train: t, route: r, lastTailSeg: r.segIndexAt(Math.max(0, r.canonicalHead(t.s, t.length) - t.length)), occupied: new Set(), entry, lane, speed: t.def.presetSpeed, running: true });
@@ -2726,12 +2751,15 @@ async function main() {
   $("save").onclick = () => {
     const name = saveNameInput.value.trim();
     if (!name || !course) return toast("保存する名前を入れてください");
+    syncCourseTrains();
     if (!saveCourse(name, JSON.parse(JSON.stringify(course)) as CourseSave)) return toast("保存できませんでした");
     fillCourses(`saved:${name}`);
     toast(`「${name}」を保存しました`);
   };
   $("export").onclick = () => {
-    if (course) downloadCourse(saveNameInput.value.trim() || "コース", course);
+    if (!course) return;
+    syncCourseTrains();
+    downloadCourse(saveNameInput.value.trim() || "コース", course);
   };
   const importFile = $<HTMLInputElement>("importFile");
   $("import").onclick = () => importFile.click();

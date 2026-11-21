@@ -390,12 +390,14 @@
       "train": "CommuterCyan",
       "at": 4,
       "port": "Start",
+      "piece": 0,
       "lane": ""
     },
     {
       "train": "CommuterLime",
       "at": 14,
-      "port": "Start2",
+      "port": "Start",
+      "piece": 10,
       "lane": ""
     }
   ],

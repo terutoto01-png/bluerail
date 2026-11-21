@@ -356,5 +356,20 @@ function timed(name, fn) {
   );
 }
 
+// 9. 多層コース（ぐるぐるタワー / 二階建ての二重丸 / 地下と屋根の上）の読み込み時に1階・2階へ正しく配置されること
+{
+  for (const name of ["ぐるぐるタワー", "二階建ての二重丸", "地下と屋根の上"]) {
+    const c = JSON.parse(fs.readFileSync(path.join(root, "public", "data", "Courses", `${name}.json`), "utf8"));
+    const ys = c.trains.map((spec) => {
+      const r = buildRoute(catalog, c.pieces, { piece: spec.piece, port: spec.port });
+      const headS = Math.min(r.length, spec.at + 8.4);
+      return Number(r.at(headS).y.toFixed(2));
+    });
+    const has1F = ys.some((y) => y < 0.2);
+    const has2F = ys.some((y) => y > 1.4);
+    check(has1F && has2F, `${name} trains spawn across floors: y=[${ys.join(", ")}]`);
+  }
+}
+
 console.log(failures === 0 ? "\nALL TESTS PASSED!" : `\nFAILED: ${failures} assertions`);
 process.exit(failures === 0 ? 0 : 1);
