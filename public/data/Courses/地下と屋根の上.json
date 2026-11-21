@@ -445,7 +445,7 @@
    "lane": ""
   },
   {
-   "train": "AdvanceExpressGreen",
+   "train": "ExpressGreen",
    "at": 12,
    "port": "Start",
    "lane": ""

@@ -9,7 +9,6 @@ const DRAWERS: { id: string; label: string }[] = [
   { id: "Point", label: "分岐" },
   { id: "Level", label: "上下" },
   { id: "Double", label: "複線" },
-  { id: "Advance", label: "スリム" },
 ];
 
 /** 上の段。drawers が無い段は作るまで押せない。「電車」は部品ではなく編成を選ぶ */
@@ -204,10 +203,11 @@ export class Shelf {
 
   private partsOf(drawer: string): RailDef[] {
     const { catalog } = this.hooks;
+    const allowed = (d: RailDef | undefined): d is RailDef => !!d && !EXCLUDED.has(d.id) && !d.id.startsWith("Advance");
     const byOrder = (a: RailDef, b: RailDef) => a.order - b.order || a.id.localeCompare(b.id);
-    if (drawer === "fav") return this.favorites.map((k) => catalog.get(k)).filter((d): d is RailDef => !!d);
-    if (drawer === "hist") return this.history.map((k) => catalog.get(k)).filter((d): d is RailDef => !!d);
-    return [...catalog.values()].filter((d) => !EXCLUDED.has(d.id) && d.categories.includes(drawer)).sort(byOrder);
+    if (drawer === "fav") return this.favorites.map((k) => catalog.get(k)).filter(allowed);
+    if (drawer === "hist") return this.history.map((k) => catalog.get(k)).filter(allowed);
+    return [...catalog.values()].filter((d) => allowed(d) && d.categories.includes(drawer)).sort(byOrder);
   }
 
   private renderDrawers() {

@@ -848,7 +848,6 @@ async function addTrain(trainId?: string) {
   lastTailSeg = tailSegOf(r);
   occupied = new Set();
   $<HTMLSelectElement>("train").value = t.def.id;
-  $<HTMLSelectElement>("lane").value = runLane;
   $<HTMLInputElement>("speed").max = String(t.def.maxSpeed);
   $<HTMLInputElement>("speed").min = String(-t.def.maxSpeed);
   speed = t.def.presetSpeed;
@@ -878,7 +877,6 @@ function removeCurrentTrain() {
   speed = next.speed;
   running = next.running;
   $<HTMLSelectElement>("train").value = train.def.id;
-  $<HTMLSelectElement>("lane").value = runLane;
   $<HTMLInputElement>("speed").max = String(train.def.maxSpeed);
   $<HTMLInputElement>("speed").min = String(-train.def.maxSpeed);
   applySpeed();
@@ -903,7 +901,6 @@ function nextTrain() {
   speed = next.speed;
   running = next.running;
   $<HTMLSelectElement>("train").value = train.def.id;
-  $<HTMLSelectElement>("lane").value = runLane;
   $<HTMLInputElement>("speed").max = String(train.def.maxSpeed);
   $<HTMLInputElement>("speed").min = String(-train.def.maxSpeed);
   applySpeed();
@@ -2539,7 +2536,7 @@ const GUIDE: [string, string][] = [
   ["かんたんモード（標準）", "行きたい場所をタップするだけで直線・左右カーブ・坂を自動選択。もう一度タップか「✓」で確定"],
   ["自動分岐・合流", "直線をタップ → 伸ばしたい場所（または別の直線）をタップで分岐や合流を自動作成"],
   ["輪にする / 高さ / 電車＋", "「🔄 輪にする」で自動接続。「地上 / 2階」で自動坂。「🚃 電車＋」は空いている路線へランダムな電車を自動配置"],
-  ["くわしくモード", "全63種の線路・駅・踏切・複線・町なみを自由に選べます（いつでも切替可能）"],
+  ["くわしくモード", "さまざまな線路・駅・踏切・複線・町なみを自由に選べます（いつでも切替可能）"],
   ["カメラ操作", "1本指ドラッグで回転、2本指ピンチ／ドラッグで拡大移動（PC: 右ドラッグ / ホイール / 左ドラッグ）"],
   ["走行モード", "スライダーで速度調整、分岐タップで自動→固定切替（PC: Tab / Space / R / N）"],
 ];
@@ -2595,9 +2592,8 @@ async function startCourse() {
   freeLevel = 0;
   freeTheta = facingTheta();
   const firstSpec = (course!.trains as { train?: string; port?: string; piece?: number; lane?: string }[] | undefined)?.[0];
-  runLane = firstSpec?.lane ?? "";
+  runLane = "";
   runEntry = firstSpec?.piece !== undefined && firstSpec.port ? entryFor(firstSpec.port, firstSpec.piece) : undefined;
-  $<HTMLSelectElement>("lane").value = runLane;
   route = buildRoute(catalog, course!.pieces, runEntry, undefined, undefined, runLane);
   if (route.notes.length) console.warn("ルート", route.notes);
   // 1本目の電車の種類はコースが決める（棚の選択はそのあとで変えられる）
@@ -2752,7 +2748,10 @@ async function main() {
   });
 
   const trainSelect = $<HTMLSelectElement>("train");
-  for (const def of bundle.trains) trainSelect.add(new Option(def.label || def.id, def.id));
+  for (const def of bundle.trains) {
+    if (def.id.startsWith("Advance")) continue;
+    trainSelect.add(new Option(def.label || def.id, def.id));
+  }
   trainSelect.value = "CommuterCream";
   trainSelect.addEventListener("change", () => void showTrain(true));
   $("addTrain").onclick = () => holdTrain(trainSelect.value, "add");
@@ -2872,11 +2871,6 @@ async function main() {
     updateEasyUi();
   };
 
-  $("lane").addEventListener("change", () => {
-    runLane = $<HTMLSelectElement>("lane").value;
-    syncCourseTrains();
-    void resetRoute();
-  });
   $("nextTrain").onclick = () => nextTrain();
   $("pickSpan").onclick = () => {
     $("moreMenu").classList.remove("open");
