@@ -14,7 +14,9 @@ import { freePlacement, isUpstream, openPorts, placementsAt, type OpenPort } fro
 import {
   applyPlanToPieces,
   branchVariants,
+  pickRandomTrainId,
   planAutoClose,
+  planAutoTrainSpawn,
   planBranchAndMerge,
   planBranchToPoint,
   planMatTap,
@@ -242,6 +244,7 @@ let undoStack: string[] = [];
   },
   confirmEasyPlan: () => confirmEasyPlan(),
   easyAutoClose: () => triggerEasyAutoClose(),
+  autoAddRandomTrain: () => autoAddRandomTrain(),
 };
 
 function resize() {
@@ -1763,14 +1766,15 @@ async function undo() {
 /** 部品が減った・入れ替わったときの組み直し。列車は安全な位置へ戻す */
 async function resetRoute() {
   if (!course) return;
-  route = buildRoute(catalog, course.pieces, undefined, undefined, undefined, runLane);
+  runEntry = runEntry && entryFor(runEntry.port, runEntry.piece);
+  route = buildRoute(catalog, course.pieces, runEntry, undefined, undefined, runLane);
   if (train && route.points.length) train.place(route, Math.min(route.length, train.length));
   else if (!train) await showTrain();
   lastTailSeg = tailSegOf(route);
-  // 2本目以降も、他編成と重ならない空き位置へ置く
+  // 2本目以降も、元の路線をなるべく保ちつつ他編成と重ならない空き位置へ置く
   for (const run of extras) {
     withRun(run, () => {
-      runEntry = runEntry && entryFor(runEntry.port);
+      runEntry = runEntry && entryFor(runEntry.port, runEntry.piece);
       route = buildRoute(catalog, course!.pieces, runEntry, undefined, undefined, runLane);
       if (route.points.length) {
         const freeS = findFreeSpawnS(route, train!.length);
@@ -1780,6 +1784,76 @@ async function resetRoute() {
     });
   }
   showInfo();
+}
+
+let lastAutoTrainId = "";
+let autoAddingTrain = false;
+/**
+ * まだ走っていない車種を優先してランダムに選び、
+ * 電車のいない路線（独立ループ・未走行支線）を最優先で自動配置する
+ */
+async function autoAddRandomTrain() {
+  if (!course || autoAddingTrain) return;
+  autoAddingTrain = true;
+  try {
+    const trainSelect = $<HTMLSelectElement>("train");
+    const allIds = [...trainSelect.options].map((o) => o.value);
+    const usedIds = [
+      ...(train ? [train.def.id] : []),
+      ...extras.map((x) => x.train.def.id),
+    ];
+    const pickedId = pickRandomTrainId(allIds, usedIds, runLane, lastAutoTrainId);
+    if (!pickedId) {
+      toast("追加できる電車がありません");
+      return;
+    }
+    const def = await loadTrainDef(base, pickedId);
+    const t = await Train.create(base, def);
+    const existing = [
+      ...(train && route ? [{ route, headS: train.s, length: train.length }] : []),
+      ...extras.map((x) => ({ route: x.route, headS: x.train.s, length: x.train.length })),
+    ];
+    const spawn = planAutoTrainSpawn(catalog, course.pieces, existing, t.length, runLane);
+    if (!spawn) {
+      toast("電車を置ける空きスペースがありません（線路を伸ばすか別の路線を作ってください）");
+      return;
+    }
+
+    lastAutoTrainId = pickedId;
+    t.place(spawn.route, spawn.headS);
+    t.speed = 0;
+    world.add(t.root);
+    if (train && route) {
+      extras.push({ train, route, lastTailSeg, occupied, entry: runEntry, lane: runLane, speed, running });
+    }
+    train = t;
+    route = spawn.route;
+    runEntry = spawn.entry;
+    lastTailSeg = tailSegOf(route);
+    occupied = new Set();
+    trainSelect.value = t.def.id;
+    $<HTMLInputElement>("speed").max = String(t.def.maxSpeed);
+    $<HTMLInputElement>("speed").min = String(-t.def.maxSpeed);
+    speed = t.def.presetSpeed;
+    running = true;
+    applySpeed();
+    syncCourseTrains();
+    updateTrainUi();
+    showInfo();
+    fitShadow();
+
+    const label = t.def.label || t.def.id;
+    const total = 1 + extras.length;
+    if (spawn.emptyIsland && spawn.islandCount > 1) {
+      toast(`${label} を空いている路線に置きました（全 ${total} 編成）`);
+    } else if (spawn.uncovered) {
+      toast(`${label} を別の路線へ置きました（全 ${total} 編成）`);
+    } else {
+      toast(`${label} を置きました（全 ${total} 編成）`);
+    }
+  } finally {
+    autoAddingTrain = false;
+  }
 }
 
 // --- かんたん配置モード ---
@@ -2464,7 +2538,7 @@ function setMode(next: "build" | "drive") {
 const GUIDE: [string, string][] = [
   ["かんたんモード（標準）", "行きたい場所をタップするだけで直線・左右カーブ・坂を自動選択。もう一度タップか「✓」で確定"],
   ["自動分岐・合流", "直線をタップ → 伸ばしたい場所（または別の直線）をタップで分岐や合流を自動作成"],
-  ["輪にする / 高さ", "「🔄 輪にする」で開いた端どうしを自動接続。「地上 / 2階」を変えると坂を自動で挟みます"],
+  ["輪にする / 高さ / 電車＋", "「🔄 輪にする」で自動接続。「地上 / 2階」で自動坂。「🚃 電車＋」は空いている路線へランダムな電車を自動配置"],
   ["くわしくモード", "全63種の線路・駅・踏切・複線・町なみを自由に選べます（いつでも切替可能）"],
   ["カメラ操作", "1本指ドラッグで回転、2本指ピンチ／ドラッグで拡大移動（PC: 右ドラッグ / ホイール / 左ドラッグ）"],
   ["走行モード", "スライダーで速度調整、分岐タップで自動→固定切替（PC: Tab / Space / R / N）"],
@@ -2737,7 +2811,7 @@ async function main() {
     updateEasyUi();
   };
   $("easyCloseLoop").onclick = () => triggerEasyAutoClose();
-  $("easyAddTrain").onclick = () => holdTrain(trainSelect.value || "CommuterCream", "add");
+  $("easyAddTrain").onclick = () => void autoAddRandomTrain();
   $("easyTrainHere").onclick = () => {
     if (selectedPiece === null) return;
     const idx = selectedPiece;

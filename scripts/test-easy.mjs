@@ -41,6 +41,8 @@ const {
   planMatTap,
   applyPlanToPieces,
   branchVariants,
+  pickRandomTrainId,
+  planAutoTrainSpawn,
 } = mod;
 
 const bundleData = JSON.parse(fs.readFileSync(path.join(root, "public", "data", "bundle.json"), "utf8"));
@@ -284,6 +286,74 @@ function timed(name, fn) {
     const r = buildRoute(catalog, finalPieces);
     check(r.closed, `U-shape route closed=${r.closed}, len=${r.length.toFixed(1)}m`);
   }
+}
+
+// 8. ランダム車種選択（未使用優先・通常/スリム分離）と空き路線優先の自動電車配置
+{
+  const allTrainIds = bundleData.trains.map((t) => t.id);
+  const used = ["CommuterLime", "ExpressRed"];
+  const picked1 = pickRandomTrainId(allTrainIds, used, "");
+  check(
+    picked1 && !picked1.startsWith("Advance") && !used.includes(picked1),
+    `random standard unused train -> ${picked1}`,
+  );
+  const pickedSlim = pickRandomTrainId(allTrainIds, [], "L");
+  check(pickedSlim && pickedSlim.startsWith("Advance"), `random slim train -> ${pickedSlim}`);
+
+  // 二階建ての二重丸（複数の独立路線）: 1編成目のあとに順次追加すると、空いている路線を最優先で埋めていくこと
+  const twoRingCourse = JSON.parse(fs.readFileSync(path.join(root, "public", "data", "Courses", "二階建ての二重丸.json"), "utf8"));
+  const existingRings = [{ route: buildRoute(catalog, twoRingCourse.pieces), headS: 9.0, length: 8.4 }];
+  const spawn2nd = timed("8a. Auto train spawn 2nd on 二階建ての二重丸", () =>
+    planAutoTrainSpawn(catalog, twoRingCourse.pieces, existingRings, 8.4, ""),
+  );
+  check(
+    spawn2nd && spawn2nd.emptyIsland && spawn2nd.islandCount >= 2,
+    `2nd placed on empty island (islands=${spawn2nd?.islandCount}, entry=${spawn2nd?.entry.piece}:${spawn2nd?.entry.port}, y=${spawn2nd?.route.at(spawn2nd.headS).y.toFixed(2)})`,
+  );
+  if (spawn2nd) {
+    existingRings.push({ route: spawn2nd.route, headS: spawn2nd.headS, length: 8.4 });
+    const spawn3rd = timed("8b. Auto train spawn 3rd on 二階建ての二重丸", () =>
+      planAutoTrainSpawn(catalog, twoRingCourse.pieces, existingRings, 8.4, ""),
+    );
+    check(
+      spawn3rd && (spawn3rd.islandCount > 2 ? spawn3rd.emptyIsland : true),
+      `3rd placed (emptyIsland=${spawn3rd?.emptyIsland}, entry=${spawn3rd?.entry.piece}:${spawn3rd?.entry.port}, y=${spawn3rd?.route.at(spawn3rd.headS).y.toFixed(2)})`,
+    );
+    if (spawn3rd) {
+      existingRings.push({ route: spawn3rd.route, headS: spawn3rd.headS, length: 8.4 });
+      const spawn4th = timed("8c. Auto train spawn 4th (all islands occupied)", () =>
+        planAutoTrainSpawn(catalog, twoRingCourse.pieces, existingRings, 8.4, ""),
+      );
+      check(spawn4th && !spawn4th.emptyIsland, `4th placed on least-crowded island at headS=${spawn4th?.headS.toFixed(1)}`);
+    }
+  }
+
+  // 定番レイアウト1（2編成配置済み）に3編成目を重ならずに自動追加できること
+  const teiban = JSON.parse(fs.readFileSync(path.join(root, "public", "data", "Courses", "定番レイアウト1.json"), "utf8"));
+  const rt = buildRoute(catalog, teiban.pieces);
+  const tExisting = [
+    { route: rt, headS: 8.4, length: 8.4 },
+    { route: rt, headS: 74.4, length: 8.4 },
+  ];
+  const spawnTeiban = timed("8d. Auto train spawn on 定番レイアウト1 (2 existing)", () =>
+    planAutoTrainSpawn(catalog, teiban.pieces, tExisting, 8.4, ""),
+  );
+  let minDistToExisting = Infinity;
+  if (spawnTeiban) {
+    for (let s = spawnTeiban.headS - 8.4; s <= spawnTeiban.headS; s += 1.0) {
+      const p = spawnTeiban.route.at(Math.max(0, s));
+      for (const ex of tExisting) {
+        for (let es = ex.headS - ex.length; es <= ex.headS; es += 1.0) {
+          const q = ex.route.at(Math.max(0, es));
+          if (Math.abs(p.y - q.y) < 1.0) minDistToExisting = Math.min(minDistToExisting, Math.hypot(p.x - q.x, p.z - q.z));
+        }
+      }
+    }
+  }
+  check(
+    !!spawnTeiban && minDistToExisting >= 2.2,
+    `teiban 3rd train placed safely (entry=${spawnTeiban?.entry.piece}:${spawnTeiban?.entry.port}, minDist=${minDistToExisting.toFixed(1)}m)`,
+  );
 }
 
 console.log(failures === 0 ? "\nALL TESTS PASSED!" : `\nFAILED: ${failures} assertions`);

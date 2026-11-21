@@ -5,6 +5,7 @@ import { encodeFlex, fitFlex, limitsOf } from "./flex";
 import { findOverlaps } from "./overlap";
 import { freePlacement, isUpstream, mate, openPorts, type OpenPort } from "./place";
 import { readState, writeState } from "./points";
+import { buildRoute, type Route } from "./route";
 import { portHeading, toWorld } from "./track";
 
 const JOIN = 0.05;
@@ -1065,4 +1066,273 @@ function pickDiversePlans(plans: EasyPlan[], limit: number): EasyPlan[] {
     if (out.length >= limit) break;
   }
   return out;
+}
+
+// --- ランダム車種選択 & 路線（つながり）優先の自動電車配置 ---
+
+export interface ExistingTrainInfo {
+  route: Route;
+  headS: number;
+  length: number;
+}
+
+export interface AutoTrainSpawn {
+  entry: { piece: number; port: string };
+  route: Route;
+  headS: number;
+  /** まだ1編成もいない独立路線（島）に置かれたか */
+  emptyIsland: boolean;
+  /** 既存編成のルートが通っていない未走行区間に置かれたか */
+  uncovered: boolean;
+  /** レイアウト内の独立路線（島）の数 */
+  islandCount: number;
+}
+
+/**
+ * まだ走っていない車種を優先して、ランダムに1種選ぶ。
+ * 車線が中央 ("") なら通常車両、L/R ならスリム車両から選ぶ。
+ */
+export function pickRandomTrainId(
+  allIds: string[],
+  usedIds: string[],
+  lane: string,
+  lastId?: string,
+  rng: () => number = Math.random,
+): string | null {
+  const gaugePool = allIds.filter((id) => (lane ? id.startsWith("Advance") : !id.startsWith("Advance")));
+  const pool = gaugePool.length ? gaugePool : allIds;
+  if (!pool.length) return null;
+  const used = new Set(usedIds);
+  const unused = pool.filter((id) => !used.has(id));
+  const candidates = unused.length ? unused : pool.length > 1 && lastId ? pool.filter((id) => id !== lastId) : pool;
+  const idx = Math.min(candidates.length - 1, Math.floor(rng() * candidates.length));
+  return candidates[idx] ?? pool[0]!;
+}
+
+/** 部品どうしのつながり（島＝独立した路線）を列挙する */
+function pieceIslands(catalog: Catalog, pieces: PieceSave[]): number[][] {
+  const n = pieces.length;
+  const ports = pieces.map((p) => (catalog.of(p)?.ports ?? []).map((q) => toWorld(p, q.position)));
+  const adj: number[][] = Array.from({ length: n }, () => []);
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const connected = ports[i]!.some((a) =>
+        ports[j]!.some((b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) <= JOIN),
+      );
+      if (connected) {
+        adj[i]!.push(j);
+        adj[j]!.push(i);
+      }
+    }
+  }
+  const seen = new Uint8Array(n);
+  const islands: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    if (seen[i]) continue;
+    const comp: number[] = [];
+    const q = [i];
+    seen[i] = 1;
+    while (q.length) {
+      const cur = q.shift()!;
+      comp.push(cur);
+      for (const nb of adj[cur]!) {
+        if (!seen[nb]) {
+          seen[nb] = 1;
+          q.push(nb);
+        }
+      }
+    }
+    islands.push(comp);
+  }
+  return islands;
+}
+
+/** ルート上で既存編成から最も離れ、なるべく平坦な配置位置 (headS) を探す */
+function bestSpotOnRoute(
+  r: Route,
+  trainLength: number,
+  occupiedPts: { x: number; y: number; z: number }[],
+): { headS: number; clearance: number; flat: boolean } | null {
+  if (r.length + 0.01 < trainLength) return null;
+  const step = Math.max(1.2, r.length / 48);
+  let best: { headS: number; clearance: number; flat: boolean; rank: number } | null = null;
+  const maxHead = Math.max(trainLength, r.length);
+  for (let head = trainLength; head <= maxHead + 0.01; head += step) {
+    const clampedHead = Math.min(r.length, head);
+    let minD = Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (let s = clampedHead - trainLength; s <= clampedHead + 0.01; s += 1.1) {
+      const p = r.at(Math.max(0, s));
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+      for (const q of occupiedPts) {
+        if (Math.abs(p.y - q.y) > 1.0) continue;
+        const d = Math.hypot(p.x - q.x, p.z - q.z);
+        if (d < minD) minD = d;
+      }
+    }
+    if (minD < 2.2) continue;
+    const flat = maxY - minY < 0.08;
+    // 空の路線（minD=Infinity）では平坦区間を優先しつつ、既存編成がある場合は距離を最優先
+    const cappedD = Number.isFinite(minD) ? Math.min(minD, 30) : 40;
+    const rank = cappedD + (flat ? 1.5 : 0);
+    if (!best || rank > best.rank) {
+      best = { headS: clampedHead, clearance: minD, flat, rank };
+    }
+  }
+  return best ? { headS: best.headS, clearance: best.clearance, flat: best.flat } : null;
+}
+
+/**
+ * 線路のつながり（独立路線・未走行の支線）を見て、電車がいない路線を優先して最適な配置先を決める。
+ * 優先順:
+ * 1. まだ1編成もいない独立路線（島）
+ * 2. 既存編成の走行ルートに含まれていない区間（支線・別ループ等）
+ * 3. 編成数が少なく、既存編成から十分離れて置ける場所（周回ルート優先）
+ */
+export function planAutoTrainSpawn(
+  catalog: Catalog,
+  pieces: PieceSave[],
+  existing: ExistingTrainInfo[],
+  trainLength: number,
+  lane = "",
+): AutoTrainSpawn | null {
+  if (!pieces.length) return null;
+  const islands = pieceIslands(catalog, pieces);
+  const pieceToIsland = new Map<number, number>();
+  islands.forEach((comp, idx) => comp.forEach((pi) => pieceToIsland.set(pi, idx)));
+
+  const islandTrainCount = new Array<number>(islands.length).fill(0);
+  const coveredTracks = new Set<string>();
+  const occupiedPts: { x: number; y: number; z: number }[] = [];
+
+  for (const e of existing) {
+    const head = e.route.canonicalHead(e.headS, e.length);
+    const tail = Math.max(0, head - e.length);
+    const under = e.route.segsUnder(tail, head);
+    const countedIslands = new Set<number>();
+    for (const sg of under) {
+      const isl = pieceToIsland.get(sg.piece);
+      if (isl !== undefined && !countedIslands.has(isl)) {
+        countedIslands.add(isl);
+        islandTrainCount[isl]!++;
+      }
+    }
+    for (const sg of e.route.segs) coveredTracks.add(`${sg.piece}:${sg.path}`);
+    for (let s = e.headS - e.length; s <= e.headS + 0.01; s += 1.0) {
+      const p = e.route.at(Math.max(0, s));
+      occupiedPts.push({ x: p.x, y: p.y, z: p.z });
+    }
+  }
+
+  const open = openPorts(catalog, pieces);
+  const openByPiece = new Map<number, OpenPort[]>();
+  for (const o of open) {
+    const list = openByPiece.get(o.piece) ?? [];
+    list.push(o);
+    openByPiece.set(o.piece, list);
+  }
+
+  const hasUncoveredTrack = (pi: number): boolean => {
+    const def = catalog.of(pieces[pi]!);
+    if (!def) return false;
+    return def.paths.some((p) => !p.lane && !(p as { frames?: unknown }).frames && !coveredTracks.has(`${pi}:${p.id}`));
+  };
+
+  interface Candidate extends AutoTrainSpawn {
+    islandTrainCount: number;
+    clearance: number;
+    closed: boolean;
+  }
+  const candidates: Candidate[] = [];
+
+  islands.forEach((comp, islIdx) => {
+    const trainsHere = islandTrainCount[islIdx]!;
+    const emptyIsland = trainsHere === 0;
+    const seeds: { piece: number; port: string }[] = [];
+    const seenSeed = new Set<string>();
+    const addSeed = (pieceIdx: number, portId: string) => {
+      const key = `${pieceIdx}:${portId}`;
+      if (seenSeed.has(key)) return;
+      seenSeed.add(key);
+      seeds.push({ piece: pieceIdx, port: portId });
+    };
+
+    // 1) この島の開いた端（行き止まり線では端から辿ることで全長を確保）
+    for (const pi of comp) {
+      for (const o of openByPiece.get(pi) ?? []) addSeed(pi, o.id);
+    }
+    // 2) 既存ルートが通っていない道（複線の空き線・未走行支線・別周回）
+    const uncoveredList = comp.filter(hasUncoveredTrack);
+    for (const pi of uncoveredList.slice(0, 4)) {
+      const def = catalog.of(pieces[pi]!);
+      if (!def) continue;
+      for (const path of def.paths) {
+        if (path.lane || (path as { frames?: unknown }).frames) continue;
+        if (!coveredTracks.has(`${pi}:${path.id}`)) {
+          addSeed(pi, path.from);
+          addSeed(pi, path.to);
+        }
+      }
+    }
+    // 3) 島の代表部品（直線を優先。複線なら両方の線から試す）
+    const rep = comp.find((pi) => pieces[pi]!.kind === "Straight" || pieces[pi]!.kind.startsWith("Double")) ?? comp[0]!;
+    const repDef = catalog.of(pieces[rep]!);
+    if (repDef) {
+      for (const path of repDef.paths) {
+        if (!path.lane && !(path as { frames?: unknown }).frames) addSeed(rep, path.from);
+      }
+      if (repDef.ports[0]) addSeed(rep, repDef.ports[0].id);
+    }
+
+    for (const seed of seeds) {
+      const r = buildRoute(catalog, pieces, { piece: seed.piece, port: seed.port }, undefined, undefined, lane);
+      if (!r.points.length || r.length + 0.01 < trainLength) continue;
+      const spot = bestSpotOnRoute(r, trainLength, occupiedPts);
+      if (!spot) continue;
+      // 置く場所だけでなくルート全体が既存編成と別線（未走行線）かを判定
+      const uncoveredCount = r.segs.filter((sg) => !coveredTracks.has(`${sg.piece}:${sg.path}`)).length;
+      const tail = Math.max(0, spot.headS - trainLength);
+      const segsAtSpot = r.segsUnder(tail, spot.headS);
+      const spotUncovered =
+        uncoveredCount > 0 && segsAtSpot.length > 0 && segsAtSpot.every((sg) => !coveredTracks.has(`${sg.piece}:${sg.path}`));
+      candidates.push({
+        entry: { piece: seed.piece, port: seed.port },
+        route: r,
+        headS: spot.headS,
+        emptyIsland,
+        uncovered: spotUncovered,
+        islandCount: islands.length,
+        islandTrainCount: trainsHere,
+        clearance: spot.clearance,
+        closed: r.closed,
+      });
+    }
+  });
+
+  if (!candidates.length) return null;
+
+  candidates.sort((a, b) => {
+    if (a.emptyIsland !== b.emptyIsland) return a.emptyIsland ? -1 : 1;
+    if (a.uncovered !== b.uncovered) return a.uncovered ? -1 : 1;
+    if (a.islandTrainCount !== b.islandTrainCount) return a.islandTrainCount - b.islandTrainCount;
+    if (a.closed !== b.closed) return a.closed ? -1 : 1;
+    const densA = a.islandTrainCount / Math.max(1, a.route.length);
+    const densB = b.islandTrainCount / Math.max(1, b.route.length);
+    if (Math.abs(densA - densB) > 0.002) return densA - densB;
+    const cA = Number.isFinite(a.clearance) ? a.clearance : 999;
+    const cB = Number.isFinite(b.clearance) ? b.clearance : 999;
+    return cB - cA;
+  });
+
+  const best = candidates[0]!;
+  return {
+    entry: best.entry,
+    route: best.route,
+    headS: best.headS,
+    emptyIsland: best.emptyIsland,
+    uncovered: best.uncovered,
+    islandCount: best.islandCount,
+  };
 }
