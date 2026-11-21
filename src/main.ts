@@ -342,22 +342,25 @@ function setSpeed(v: number) {
 }
 
 // --- 列車 ---
-async function showTrain() {
+async function showTrain(keepPosition = false) {
   const r = route;
   if (!r || !r.points.length) return;
+  const prevS = keepPosition && train ? train.s : null;
   const t = await Train.create(base, await loadTrainDef(base, $<HTMLSelectElement>("train").value));
   if (route !== r) return; // 作っている間にコースが替わった
   if (train) world.remove(train.root);
   train = t;
   world.add(t.root);
   const at = (course?.trains as { at: number }[] | undefined)?.[0]?.at ?? 0;
-  t.place(r, headStart(r, t, at));
+  t.place(r, prevS !== null ? Math.min(r.length, Math.max(t.length, prevS)) : headStart(r, t, at));
   $<HTMLInputElement>("speed").max = String(t.def.maxSpeed);
   $<HTMLInputElement>("speed").min = String(-t.def.maxSpeed);
   speed = t.def.presetSpeed;
   running = true;
   applySpeed();
   t.speed = 0;
+  if (keepPosition) syncCourseTrains();
+  updateTrainUi();
 }
 
 // --- 分岐 ---
@@ -493,23 +496,159 @@ function withRun(run: Run, fn: () => void) {
   }
 }
 
-/** カメラとミニマップが見る編成を、次の編成へ替える（2本目以降を1本目と入れ替える） */
-function nextTrain() {
-  const next = extras.shift();
-  if (!next || !train || !route) return;
-  extras.push({ train, route, lastTailSeg, occupied, entry: runEntry, lane: runLane, speed, running });
-  speed = next.speed;
-  running = next.running;
+/** 編成数とボタン表示を現在の状態に合わせる */
+function updateTrainUi() {
+  const total = (train ? 1 : 0) + extras.length;
+  const hasMulti = total > 1;
+  const trainLabel = document.getElementById("trainLabel");
+  if (trainLabel) trainLabel.textContent = hasMulti ? `見ている電車（全 ${total} 編成）` : "電車（1編成）";
+  const nextBtn = $("nextTrain");
+  nextBtn.style.display = hasMulti ? "" : "none";
+  nextBtn.innerHTML = `次の編成 (${total})<span class="key"> [N]</span>`;
+  ($("menuNextTrain") as HTMLButtonElement).disabled = !hasMulti;
+  ($("removeTrain") as HTMLButtonElement).disabled = !hasMulti;
+}
+
+/** コース保存データの trains 配列を、現在の全編成と同期する */
+function syncCourseTrains() {
+  if (!course || !train || !route) return;
+  const entryOf = (t: Train, r: Route, e: Run["entry"], lane: string) => ({
+    train: t.def.id,
+    at: Math.max(0, Math.round((r.canonicalHead(t.s, t.length) - t.length) * 10) / 10),
+    port: e?.port ?? "Start",
+    lane,
+  });
+  course.trains = [
+    entryOf(train, route, runEntry, runLane),
+    ...extras.map((x) => entryOf(x.train, x.route, x.entry, x.lane)),
+  ];
+}
+
+/** 既存編成から最も離れた安全な配置位置（headS）をルート上で探す。空きが無ければ null */
+function findFreeSpawnS(r: Route, trainLength: number): number | null {
+  if (r.length < trainLength + 0.5) return null;
+  const existing = [
+    ...(train && route ? [{ t: train, r: route }] : []),
+    ...extras.map((x) => ({ t: x.train, r: x.route })),
+  ];
+  const ptsOf = (t: Train, rt: Route) => {
+    const out: { x: number; y: number; z: number }[] = [];
+    for (let s = t.s - t.length; s <= t.s + 0.01; s += 1.0) out.push(rt.at(s));
+    return out;
+  };
+  const occupiedPts = existing.flatMap((e) => ptsOf(e.t, e.r));
+  const step = Math.max(1.5, r.length / 40);
+  let bestS: number | null = null;
+  let bestClearance = -1;
+  for (let head = trainLength; head <= r.length; head += step) {
+    let minD = Infinity;
+    for (let s = head - trainLength; s <= head + 0.01; s += 1.2) {
+      const p = r.at(s);
+      for (const q of occupiedPts) {
+        if (Math.abs(p.y - q.y) > 1.0) continue;
+        const d = Math.hypot(p.x - q.x, p.z - q.z);
+        if (d < minD) minD = d;
+      }
+    }
+    if (minD > bestClearance) {
+      bestClearance = minD;
+      bestS = head;
+    }
+  }
+  return bestClearance >= 2.2 ? bestS : null;
+}
+
+/** 新しい編成を空き位置へ1本追加し、操作対象を切り替える */
+async function addTrain(trainId?: string) {
+  if (!course) return;
+  const id = trainId ?? $<HTMLSelectElement>("train").value;
+  const lane = runLane;
+  const r = buildRoute(catalog, course.pieces, undefined, undefined, undefined, lane);
+  if (!r.points.length) {
+    toast("線路がつながっていないため電車を置けません");
+    return;
+  }
+  const t = await Train.create(base, await loadTrainDef(base, id));
+  const spawnS = findFreeSpawnS(r, t.length);
+  if (spawnS === null) {
+    toast("この線路にはもう編成を置く空きがありません");
+    return;
+  }
+  t.place(r, spawnS);
+  t.speed = 0;
+  world.add(t.root);
+  if (train && route) {
+    extras.push({ train, route, lastTailSeg, occupied, entry: runEntry, lane: runLane, speed, running });
+  }
+  train = t;
+  route = r;
+  runEntry = undefined;
+  runLane = lane;
+  lastTailSeg = tailSegOf(r);
+  occupied = new Set();
+  $<HTMLSelectElement>("train").value = t.def.id;
+  $<HTMLSelectElement>("lane").value = runLane;
+  $<HTMLInputElement>("speed").max = String(t.def.maxSpeed);
+  $<HTMLInputElement>("speed").min = String(-t.def.maxSpeed);
+  speed = t.def.presetSpeed;
+  running = true;
   applySpeed();
+  syncCourseTrains();
+  updateTrainUi();
+  showInfo();
+  fitShadow();
+  toast(`${t.def.label || t.def.id} を追加しました（全 ${1 + extras.length} 編成）`);
+}
+
+/** いま見ている編成を外す（最低1編成は残す） */
+function removeCurrentTrain() {
+  const next = extras.shift();
+  if (!next || !train) {
+    toast("最後の1編成は外せません");
+    return;
+  }
+  world.remove(train.root);
   train = next.train;
   route = next.route;
   lastTailSeg = next.lastTailSeg;
   occupied = next.occupied;
   runEntry = next.entry;
   runLane = next.lane;
-  showInfo();
+  speed = next.speed;
+  running = next.running;
+  $<HTMLSelectElement>("train").value = train.def.id;
   $<HTMLSelectElement>("lane").value = runLane;
-  toast(`${train.def.id} を見ています`);
+  $<HTMLInputElement>("speed").max = String(train.def.maxSpeed);
+  $<HTMLInputElement>("speed").min = String(-train.def.maxSpeed);
+  applySpeed();
+  syncCourseTrains();
+  updateTrainUi();
+  showInfo();
+  fitShadow();
+  toast(`編成を外しました（残り ${1 + extras.length} 編成）`);
+}
+
+/** カメラとミニマップが見る編成を、次の編成へ替える（2本目以降を1本目と入れ替える） */
+function nextTrain() {
+  const next = extras.shift();
+  if (!next || !train || !route) return;
+  extras.push({ train, route, lastTailSeg, occupied, entry: runEntry, lane: runLane, speed, running });
+  train = next.train;
+  route = next.route;
+  lastTailSeg = next.lastTailSeg;
+  occupied = next.occupied;
+  runEntry = next.entry;
+  runLane = next.lane;
+  speed = next.speed;
+  running = next.running;
+  $<HTMLSelectElement>("train").value = train.def.id;
+  $<HTMLSelectElement>("lane").value = runLane;
+  $<HTMLInputElement>("speed").max = String(train.def.maxSpeed);
+  $<HTMLInputElement>("speed").min = String(-train.def.maxSpeed);
+  applySpeed();
+  updateTrainUi();
+  showInfo();
+  toast(`${train.def.label || train.def.id} に切り替えました`);
 }
 
 /** 全編成のルートを、いまの部品の状態で組み直す */
@@ -528,17 +667,22 @@ function entryFor(port: string): Run["entry"] {
   return piece < 0 ? undefined : { piece, port };
 }
 
-/** 2本目以降の編成を、コースの指定どおりに置く */
+/** 2本目以降の編成を、コースの指定どおりに並列で置く */
 async function spawnExtras() {
-  const specs = (course?.trains ?? []) as { train: string; at: number; port: string }[];
+  const specs = (course?.trains ?? []) as { train: string; at: number; port: string; lane?: string }[];
   const gen = renderGeneration;
   extras = [];
-  for (const spec of specs.slice(1)) {
+  const loaded = await Promise.all(
+    specs.slice(1).map(async (spec) => ({
+      spec,
+      train: await Train.create(base, await loadTrainDef(base, spec.train)),
+    })),
+  );
+  if (gen !== renderGeneration) return;
+  for (const { spec, train: t } of loaded) {
     // 口が見つからなければ、既定の始点から数える（同じ線の上に並ぶ）
     const entry = entryFor(spec.port);
-    const t = await Train.create(base, await loadTrainDef(base, spec.train));
-    if (gen !== renderGeneration) return;
-    const lane = (spec as { lane?: string }).lane ?? "";
+    const lane = spec.lane ?? "";
     const r = buildRoute(catalog, course!.pieces, entry, undefined, undefined, lane);
     if (!r.points.length) continue;
     t.place(r, headStart(r, t, spec.at));
@@ -1747,7 +1891,7 @@ async function startCourse() {
   paintSelection();
   showInfo();
   refreshEnds();
-  $("nextTrain").style.display = extras.length > 0 ? "" : "none";
+  updateTrainUi();
   void updateGhost();
   shelf.refreshAvailability();
   refreshQuickBar();
@@ -1829,7 +1973,11 @@ async function main() {
     onTrain: (id) => {
       $<HTMLSelectElement>("train").value = id;
       setShelfOpen(false);
-      void showTrain();
+      void showTrain(true);
+    },
+    onAddTrain: (id) => {
+      setShelfOpen(false);
+      void addTrain(id);
     },
     available: (kind) => isPartAvailable(kind),
   });
@@ -1888,7 +2036,10 @@ async function main() {
   const trainSelect = $<HTMLSelectElement>("train");
   for (const def of bundle.trains) trainSelect.add(new Option(def.label || def.id, def.id));
   trainSelect.value = "CommuterCream";
-  trainSelect.addEventListener("change", () => showTrain());
+  trainSelect.addEventListener("change", () => void showTrain(true));
+  $("addTrain").onclick = () => void addTrain();
+  $("menuNextTrain").onclick = () => nextTrain();
+  $("removeTrain").onclick = () => removeCurrentTrain();
 
   const guideList = $("guideList");
   for (const [k, v] of GUIDE) {
@@ -1945,6 +2096,7 @@ async function main() {
 
   $("lane").addEventListener("change", () => {
     runLane = $<HTMLSelectElement>("lane").value;
+    syncCourseTrains();
     void resetRoute();
   });
   $("nextTrain").onclick = () => nextTrain();

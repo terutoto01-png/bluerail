@@ -731,6 +731,12 @@
    "at": 0,
    "port": "Start",
    "lane": ""
+  },
+  {
+   "train": "ExpressRed",
+   "at": 66,
+   "port": "Start",
+   "lane": ""
   }
  ],
  "props": []

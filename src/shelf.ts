@@ -24,7 +24,14 @@ const GROUPS: { id: string; label: string; drawers?: { id: string; label: string
     ],
   },
   { id: "scenery", label: "情景", drawers: [{ id: "town", label: "町なみ" }] },
-  { id: "train", label: "電車", drawers: [{ id: "trains", label: "編成" }] },
+  {
+    id: "train",
+    label: "電車",
+    drawers: [
+      { id: "trains", label: "いまの編成を替える" },
+      { id: "addTrain", label: "＋ 編成を追加" },
+    ],
+  },
 ];
 
 /** 扱わない部品（ループは除外） */
@@ -62,8 +69,10 @@ export interface ShelfHooks {
   trains(): { id: string; label: string }[];
   /** いま走らせている電車 */
   currentTrain(): string;
-  /** 電車が選ばれた */
+  /** 電車が選ばれた（いまの編成の車種を替える） */
   onTrain(id: string): void;
+  /** 新しい編成として追加する */
+  onAddTrain(id: string): void;
   /** 町なみ・電車の棚の絵 */
   iconOfProp(id: string): Promise<string>;
   iconOfTrain(id: string): Promise<string>;
@@ -152,16 +161,18 @@ export class Shelf {
   }
 
   private renderTrains() {
+    const adding = this.drawer === "addTrain";
     const current = this.hooks.currentTrain();
     for (const t of this.hooks.trains()) {
       const tile = document.createElement("div");
       tile.className = "tile text";
-      tile.classList.toggle("on", t.id === current);
+      tile.classList.toggle("on", !adding && t.id === current);
       const label = document.createElement("span");
-      label.textContent = t.label;
+      label.textContent = adding ? `＋ ${t.label}` : t.label;
       tile.append(this.iconImg(this.hooks.iconOfTrain(t.id)), label);
       tile.onclick = () => {
-        this.hooks.onTrain(t.id);
+        if (adding) this.hooks.onAddTrain(t.id);
+        else this.hooks.onTrain(t.id);
         this.renderTiles();
       };
       this.tiles.append(tile);
