@@ -384,9 +384,43 @@ async function addRoom(scene: THREE.Scene, baseUrl: string): Promise<{ walls: Wa
     envMapIntensity: 0,
   });
 
+  const ROOM_GLBS = [
+    "wallWindow",
+    "wall",
+    "wallDoorway",
+    "wallDoorwayWide",
+    "doorwayFront",
+    "rugDoormat",
+    "coatRack",
+    "doorway",
+    "wallWindowSlide",
+    "tableCoffee",
+    "lampRoundFloor",
+    "bookcaseClosedWide",
+    "cabinetTelevision",
+    "televisionVintage",
+    "tableRound",
+    "chair",
+    "sideTable",
+    "lampSquareFloor",
+    "lampSquareCeiling",
+    "bookcaseOpen",
+    "loungeSofa",
+    "pottedPlant",
+    "cardboardBoxOpen",
+  ] as const;
+  const glbCache = new Map<string, THREE.Object3D>();
+  await Promise.all(
+    ROOM_GLBS.map(async (id) => {
+      const gltf = await loader.loadAsync(`${baseUrl}room/${id}.glb`);
+      glbCache.set(id, gltf.scene);
+    }),
+  );
+
   /** 高さ wantedHeight に合わせて拡縮し、底の中心を floorPosition に置く（Unity の `AddRoomModel`） */
-  async function place(id: string, floorPosition: THREE.Vector3, wantedHeight: number, yawDeg: number, widthTo?: number) {
-    const src = (await loader.loadAsync(`${baseUrl}room/${id}.glb`)).scene;
+  function place(id: string, floorPosition: THREE.Vector3, wantedHeight: number, yawDeg: number, widthTo?: number) {
+    const src = glbCache.get(id);
+    if (!src) throw new Error(`未読込の部屋モデル: ${id}`);
     const model = src.clone();
     const holder = new THREE.Group();
     holder.rotation.y = THREE.MathUtils.degToRad(yawDeg);
@@ -426,17 +460,17 @@ async function addRoom(scene: THREE.Scene, baseUrl: string): Promise<{ walls: Wa
   }
 
   const h = 2.4 * UNITS_PER_METRE;
-  const window = await place("wallWindow", new THREE.Vector3(0, 0, -65), h, 0);
+  const window = place("wallWindow", new THREE.Vector3(0, 0, -65), h, 0);
   const windowHalf = new THREE.Box3().setFromObject(window).getSize(new THREE.Vector3()).x / 2;
   const half = windowHalf * 3;
   const worldDir = (x: number, z: number) => new THREE.Vector3(-x, 0, z); // Unity → three
   walls.push({ object: window, outward: worldDir(0, -1), boundary: 65 });
   addCurtains(room, h / 1.29);
   for (const side of [-1, 1]) {
-    const w = await place("wall", new THREE.Vector3(side * (windowHalf + windowHalf), 0, -65), h, 0, windowHalf * 2);
+    const w = place("wall", new THREE.Vector3(side * (windowHalf + windowHalf), 0, -65), h, 0, windowHalf * 2);
     walls.push({ object: w, outward: worldDir(0, -1), boundary: 65 });
   }
-  const front = await place("wall", new THREE.Vector3(0, 0, 65), h, 180, half * 2);
+  const front = place("wall", new THREE.Vector3(0, 0, 65), h, 180, half * 2);
   walls.push({ object: front, outward: worldDir(0, 1), boundary: 65 });
 
   // --- 家: 左の壁の先に廊下と玄関、右の壁の先に畳の部屋 ---
@@ -446,41 +480,41 @@ async function addRoom(scene: THREE.Scene, baseUrl: string): Promise<{ walls: Wa
   const z0 = 8; // 開口の中心
   const aperture = [z0 - panel / 2, z0 + panel / 2];
   /** 側面の壁を、開口の前後だけ伸ばした壁で埋めて、真ん中に開口のパネルを置く */
-  async function sideWall(x: number, yaw: number, outwardX: number, openingId: string) {
-    const back = await place("wall", new THREE.Vector3(x, 0, (-65 + aperture[0]!) / 2), h, yaw, aperture[0]! + 65);
-    const mid = await place(openingId, new THREE.Vector3(x, 0, z0), h, yaw);
-    const near = await place("wall", new THREE.Vector3(x, 0, (aperture[1]! + 65) / 2), h, yaw, 65 - aperture[1]!);
+  function sideWall(x: number, yaw: number, outwardX: number, openingId: string) {
+    const back = place("wall", new THREE.Vector3(x, 0, (-65 + aperture[0]!) / 2), h, yaw, aperture[0]! + 65);
+    const mid = place(openingId, new THREE.Vector3(x, 0, z0), h, yaw);
+    const near = place("wall", new THREE.Vector3(x, 0, (aperture[1]! + 65) / 2), h, yaw, 65 - aperture[1]!);
     for (const w of [back, mid, near]) walls.push({ object: w, outward: worldDir(outwardX, 0), boundary: half });
   }
-  await sideWall(-half, 90, -1, "wallDoorway");
-  await sideWall(half, 270, 1, "wallDoorwayWide");
+  sideWall(-half, 90, -1, "wallDoorway");
+  sideWall(half, 270, 1, "wallDoorwayWide");
 
   // 廊下（左）: 開口の幅のまま 70 ユニット伸ばし、突き当たりに玄関の扉
   const hallLength = 70;
   const hallEnd = -half - hallLength;
   for (const z of aperture) {
-    const w = await place("wall", new THREE.Vector3((-half + hallEnd) / 2, 0, z), h, 0, hallLength);
+    const w = place("wall", new THREE.Vector3((-half + hallEnd) / 2, 0, z), h, 0, hallLength);
     walls.push({ object: w, outward: worldDir(0, z < z0 ? -1 : 1), boundary: Math.abs(z) });
   }
-  await place("wallDoorway", new THREE.Vector3(hallEnd, -STEP_UP, z0), h, 90);
-  await place("doorwayFront", new THREE.Vector3(hallEnd + 1, -STEP_UP, z0), 1.01 * k, 90);
-  await place("rugDoormat", new THREE.Vector3(hallEnd + 14, -STEP_UP + 0.03, z0), 0.012 * k, 90);
-  await place("coatRack", new THREE.Vector3(hallEnd + 22, 1.55 * UNITS_PER_METRE, aperture[1]! - 1), 0.28 * k, 0);
+  place("wallDoorway", new THREE.Vector3(hallEnd, -STEP_UP, z0), h, 90);
+  place("doorwayFront", new THREE.Vector3(hallEnd + 1, -STEP_UP, z0), 1.01 * k, 90);
+  place("rugDoormat", new THREE.Vector3(hallEnd + 14, -STEP_UP + 0.03, z0), 0.012 * k, 90);
+  place("coatRack", new THREE.Vector3(hallEnd + 22, 1.55 * UNITS_PER_METRE, aperture[1]! - 1), 0.28 * k, 0);
   // 居間と玄関ホールのあいだの扉（閉じた状態）。開口は幅 0.41・高さ 0.98、扉は 0.49 × 1.01（枠の寸法）
-  await place("doorway", new THREE.Vector3(-half, 0, z0), 1.01 * k, 90);
+  place("doorway", new THREE.Vector3(-half, 0, z0), 1.01 * k, 90);
 
   // 畳の部屋（右）: 開口の先に 90 × 90。窓（障子の代わり）と座卓、座布団
   const tatamiSize = 90;
   const tatamiEnd = half + tatamiSize;
   for (const [z, out] of [[z0 - tatamiSize / 2, -1], [z0 + tatamiSize / 2, 1]] as const) {
-    const w = await place("wall", new THREE.Vector3((half + tatamiEnd) / 2, 0, z), h, out < 0 ? 0 : 180, tatamiSize);
+    const w = place("wall", new THREE.Vector3((half + tatamiEnd) / 2, 0, z), h, out < 0 ? 0 : 180, tatamiSize);
     walls.push({ object: w, outward: worldDir(0, out), boundary: Math.abs(z) });
   }
   const gap = (tatamiSize - panel) / 2;
-  await place("wallWindowSlide", new THREE.Vector3(tatamiEnd, 0, z0), h, 270);
-  await place("wall", new THREE.Vector3(tatamiEnd, 0, z0 - panel / 2 - gap / 2), h, 270, gap);
-  await place("wall", new THREE.Vector3(tatamiEnd, 0, z0 + panel / 2 + gap / 2), h, 270, gap);
-  await place("tableCoffee", new THREE.Vector3(half + 45, 0, z0), 0.4 * UNITS_PER_METRE, 90);
+  place("wallWindowSlide", new THREE.Vector3(tatamiEnd, 0, z0), h, 270);
+  place("wall", new THREE.Vector3(tatamiEnd, 0, z0 - panel / 2 - gap / 2), h, 270, gap);
+  place("wall", new THREE.Vector3(tatamiEnd, 0, z0 + panel / 2 + gap / 2), h, 270, gap);
+  place("tableCoffee", new THREE.Vector3(half + 45, 0, z0), 0.4 * UNITS_PER_METRE, 90);
   // 座布団: 約 50cm 角の平らな箱。座卓（長辺 32）の外側の短辺側に置く
   for (const side of [-1, 1]) {
     const cushion = new THREE.Mesh(
@@ -491,14 +525,14 @@ async function addRoom(scene: THREE.Scene, baseUrl: string): Promise<{ walls: Wa
     cushion.castShadow = cushion.receiveShadow = true;
     room.add(cushion);
   }
-  await place("lampRoundFloor", new THREE.Vector3(tatamiEnd - 8, 0, z0 - tatamiSize / 2 + 8), 0.86 * k * 0.9, 0);
+  place("lampRoundFloor", new THREE.Vector3(tatamiEnd - 8, 0, z0 - tatamiSize / 2 + 8), 0.86 * k * 0.9, 0);
 
   addHouseFloors(room, { half, z0, panel, hallEnd, hallLength, tatamiEnd, tatamiSize });
 
   // --- 玄関の生活感: 下駄箱・傘立て・靴 ---
   const U = UNITS_PER_METRE;
   const gz = aperture[1]!;
-  await place("bookcaseClosedWide", new THREE.Vector3(hallEnd + 52, 0, gz - 6), 0.95 * U, 0);
+  place("bookcaseClosedWide", new THREE.Vector3(hallEnd + 52, 0, gz - 6), 0.95 * U, 0);
   const umbrellaStand = new THREE.Group();
   const stand = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.2, 11, 12), new THREE.MeshStandardMaterial({ color: 0x4d5a63, roughness: 0.6, envMapIntensity: 0 }));
   stand.position.y = 5.5;
@@ -529,17 +563,17 @@ async function addRoom(scene: THREE.Scene, baseUrl: string): Promise<{ walls: Wa
   // --- 居間の家具: テレビ台とテレビ、ダイニングテーブルと椅子 ---
   // 太陽の影は右奥（+x, -z）へ伸びる。遊ぶ場所（マット）へ影が掛からないよう、背の高い家具は手前の右か、左前に置く
   // テレビ台の奥行は 11。手前の壁（巾木の内側 z=61.9）に食い込まない位置へ
-  await place("cabinetTelevision", new THREE.Vector3(-43, 0, 56), 0.5 * U, 0);
-  await place("televisionVintage", new THREE.Vector3(-43, 0.5 * U, 56), 0.42 * U, 0);
+  place("cabinetTelevision", new THREE.Vector3(-43, 0, 56), 0.5 * U, 0);
+  place("televisionVintage", new THREE.Vector3(-43, 0.5 * U, 56), 0.42 * U, 0);
   // 重ならない位置: テーブルは直径 36（高さ 0.6m）、椅子は幅 10。椅子はテーブルの縁の外、壁の巾木の内側
-  await place("tableRound", new THREE.Vector3(40, 0, 32), 0.6 * U, 0);
+  place("tableRound", new THREE.Vector3(40, 0, 32), 0.6 * U, 0);
   // yaw 0 は -z を向く。テーブル（z=32）より手前（z が小さい側）の椅子は +z を向くので 180°
-  await place("chair", new THREE.Vector3(40, 0, 8), 0.85 * U, 180);
-  await place("chair", new THREE.Vector3(40, 0, 56), 0.85 * U, 0);
+  place("chair", new THREE.Vector3(40, 0, 8), 0.85 * U, 180);
+  place("chair", new THREE.Vector3(40, 0, 56), 0.85 * U, 0);
   // 長辺（19）を壁に沿わせる。向きを回さないと壁に食い込む
-  await place("sideTable", new THREE.Vector3(70, 0, -28), 0.5 * U, 90);
+  place("sideTable", new THREE.Vector3(70, 0, -28), 0.5 * U, 90);
   // ソファは x が 19.4〜66.6。照明の幅 4.3 の半分を足した外側に置く
-  await place("lampSquareFloor", new THREE.Vector3(70, 0, -48), 1.1 * U, 0);
+  place("lampSquareFloor", new THREE.Vector3(70, 0, -48), 1.1 * U, 0);
 
   // --- 巾木: 壁の足元の細い板 ---
   const skirtingMaterial = new THREE.MeshStandardMaterial({ color: 0xf3ecdc, roughness: 0.8, envMapIntensity: 0 });
@@ -593,15 +627,15 @@ async function addRoom(scene: THREE.Scene, baseUrl: string): Promise<{ walls: Wa
   // 照明は天井から吊る
   const lamp = 0.23 * k;
   for (const [x, z] of [[0, 0], [-half - hallLength / 2, z0], [half + tatamiSize / 2, z0]] as const) {
-    await place("lampSquareCeiling", new THREE.Vector3(x, h - lamp, z), lamp, 0);
+    place("lampSquareCeiling", new THREE.Vector3(x, h - lamp, z), lamp, 0);
   }
   roomHalf = half;
 
   // 読める程度の家具だけ。中央は空けて、線路を主役にする
-  await place("bookcaseOpen", new THREE.Vector3(-45, 0, -55), 1.4 * UNITS_PER_METRE, 0);
-  await place("loungeSofa", new THREE.Vector3(43, 0, -50), 0.8 * UNITS_PER_METRE, 180);
-  await place("pottedPlant", new THREE.Vector3(-25, 0, -56), 0.55 * UNITS_PER_METRE, 0);
-  await place("cardboardBoxOpen", new THREE.Vector3(22, 0, -35), 0.25 * UNITS_PER_METRE, 205);
+  place("bookcaseOpen", new THREE.Vector3(-45, 0, -55), 1.4 * UNITS_PER_METRE, 0);
+  place("loungeSofa", new THREE.Vector3(43, 0, -50), 0.8 * UNITS_PER_METRE, 180);
+  place("pottedPlant", new THREE.Vector3(-25, 0, -56), 0.55 * UNITS_PER_METRE, 0);
+  place("cardboardBoxOpen", new THREE.Vector3(22, 0, -35), 0.25 * UNITS_PER_METRE, 205);
   return { walls, props };
 }
 

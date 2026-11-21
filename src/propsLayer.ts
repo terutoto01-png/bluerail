@@ -1,6 +1,6 @@
 // マットに置いた町なみの管理。置く（狙う→ゴースト→確定）、選ぶ、回す、消す。部品（レール）とは別の層
 import * as THREE from "three";
-import { buildProp, loadProps, type PropDef, type PropSave } from "./props";
+import { buildProp, extractFreeProps, loadProps, type PropDef, type PropSave } from "./props";
 
 /** 位置の刻み（Unity の `FreeGrid`）と向きの刻み */
 const GRID = 1.5;
@@ -24,6 +24,10 @@ export class PropsLayer {
 
   async load(base: string) {
     this.defs = await loadProps(base);
+  }
+
+  setDefs(allDefs: PropDef[]) {
+    this.defs = extractFreeProps(allDefs);
   }
 
   defOf(id: string) {

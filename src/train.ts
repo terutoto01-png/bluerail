@@ -24,16 +24,28 @@ export interface TrainDef {
   /** TPS カメラの後方・上方（m） */
   cameraTpsBack: number;
   cameraTpsUp: number;
+  /** 運転席カメラの高さ（m） */
+  cameraCabUp?: number;
   /** 進行方向を測る接線の幅（m） */
   cameraTangentSpan?: number;
+}
+
+const defCache = new Map<string, Promise<TrainDef>>();
+export function seedTrainDefs(list: TrainDef[]) {
+  for (const d of list) defCache.set(d.id, Promise.resolve(d));
 }
 
 export async function loadTrainIds(base: string): Promise<string[]> {
   return (await fetch(`${base}data/trains.json`)).json();
 }
 
-export async function loadTrainDef(base: string, id: string): Promise<TrainDef> {
-  return (await fetch(`${base}data/Trains/${id}/${id}.json`)).json();
+export function loadTrainDef(base: string, id: string): Promise<TrainDef> {
+  let p = defCache.get(id);
+  if (!p) {
+    p = fetch(`${base}data/Trains/${id}/${id}.json`).then((r) => r.json() as Promise<TrainDef>);
+    defCache.set(id, p);
+  }
+  return p;
 }
 
 const fbx = new FBXLoader();

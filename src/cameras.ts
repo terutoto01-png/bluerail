@@ -41,14 +41,28 @@ export class CameraRig {
       this.camera.position.copy(nose).addScaledVector(forward, -back).add(new THREE.Vector3(0, up, 0));
       this.controls.target.copy(look);
       this.camera.lookAt(look);
-    } else if (train.activeCab) {
+    } else {
+      // 前面展望（運転席）: 進む向きの先頭から、目の前の線路を少し見下ろす角度（Unity 版と同じ forward*13 - up*0.65）
+      const dir = train.reversing ? -1 : 1;
       const cab = train.activeCab;
-      const eye = cab.getWorldPosition(new THREE.Vector3());
-      // FBX の前方は -z。運転席から 10m 先を見る
-      const ahead = cab.localToWorld(new THREE.Vector3(0, 0, -1000));
+      let eye: THREE.Vector3;
+      let forward: THREE.Vector3;
+      if (cab) {
+        eye = cab.getWorldPosition(new THREE.Vector3());
+        // FBX の前方は -z（100 = 1m、model.scale 0.01 倍のため）
+        const aheadLocal = cab.localToWorld(new THREE.Vector3(0, 0, -100));
+        forward = aheadLocal.sub(eye).normalize();
+      } else {
+        // 後尾車に Cab_Camera が無い車両（Express 後退時など）のフォールバック
+        const nose = toThree(route.at(train.leadS));
+        const back = toThree(route.at(train.leadS - dir * 1.5));
+        forward = nose.clone().sub(back).normalize();
+        eye = nose.add(new THREE.Vector3(0, train.def.cameraCabUp ?? 0.95, 0));
+      }
+      const look = eye.clone().addScaledVector(forward, 13).add(new THREE.Vector3(0, -0.65, 0));
       this.camera.position.copy(eye);
-      this.camera.lookAt(ahead);
-      this.controls.target.copy(ahead);
+      this.camera.lookAt(look);
+      this.controls.target.copy(look);
     }
   }
 }

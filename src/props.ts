@@ -24,12 +24,8 @@ export interface PropSave {
   yaw: number;
 }
 
-export async function loadProps(base: string): Promise<PropDef[]> {
-  const ids: string[] = await (await fetch(`${base}data/scenery.json`)).json();
-  const defs = await Promise.all(
-    ids.map(async (id) => (await (await fetch(`${base}data/Scenery/${id}/${id}.json`)).json()) as PropDef),
-  );
-  const free = defs.filter((d) => d.at === "free");
+export function extractFreeProps(defs: PropDef[]): PropDef[] {
+  const free = defs.filter((d) => d.at === "free").map((d) => ({ ...d }));
   // 木は2種類（広葉樹と針葉樹）。木 2 は web 版で足した。森は2種類を交互に植える
   const tree = free.find((d) => d.id === "Tree");
   if (tree) {
@@ -37,6 +33,14 @@ export async function loadProps(base: string): Promise<PropDef[]> {
     free.splice(free.indexOf(tree) + 1, 0, { ...tree, id: "Tree2", label: "木 2" });
   }
   return free;
+}
+
+export async function loadProps(base: string): Promise<PropDef[]> {
+  const ids: string[] = await (await fetch(`${base}data/scenery.json`)).json();
+  const defs = await Promise.all(
+    ids.map(async (id) => (await (await fetch(`${base}data/Scenery/${id}/${id}.json`)).json()) as PropDef),
+  );
+  return extractFreeProps(defs);
 }
 
 // --- 材質と絵 ---

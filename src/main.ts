@@ -1,13 +1,14 @@
 import * as THREE from "three";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { loadCatalog, modelUrl, type Catalog } from "./catalog";
+import { Catalog, modelUrl } from "./catalog";
+import { loadBundle } from "./bundle";
 import { loadCourse, type CourseSave, type PieceSave } from "./course";
 import { checkCatalog, looseJoints, portHeading, samplePath, toWorld } from "./track";
 import { flexPlacement, limitsOf } from "./flex";
 import { buildRoute, type Route } from "./route";
 import { cycle, junctionsOf, readState, writeState } from "./points";
-import { loadTrainDef, loadTrainIds, Train } from "./train";
+import { loadTrainDef, seedTrainDefs, Train } from "./train";
 import { CameraRig, type CameraMode } from "./cameras";
 import { freePlacement, isUpstream, openPorts, placementsAt, type OpenPort } from "./place";
 import { findOverlaps, type Hit } from "./overlap";
@@ -19,7 +20,7 @@ import { buildSupports, loadPierModels } from "./supports";
 import { Minimap } from "./minimap";
 import { PropsLayer } from "./propsLayer";
 import { buildDecorations } from "./decor";
-import { buildWorn, centrePath, loadWorn, wearable } from "./decorWorn";
+import { buildWorn, centrePath, loadWorn, seedWornDefs, wearable } from "./decorWorn";
 import { buildProp, type PropSave } from "./props";
 
 const base = import.meta.env.BASE_URL;
@@ -249,9 +250,12 @@ renderer.setAnimationLoop(() => {
   scene.updateMatrixWorld();
   scenery?.updateWalls(camera.position);
   scenery?.updateProps(camera.position, controls.target);
-  rig.update(route, train);
-  controls.update();
-  clampFocus();
+  if (rig.mode === "free") {
+    controls.update();
+    clampFocus();
+  } else {
+    rig.update(route, train);
+  }
   updateHud(performance.now());
   renderer.render(scene, camera);
 });
@@ -685,14 +689,12 @@ async function renderPieces() {
   pieceGroups = [];
   markers.clear();
   const pieces = course!.pieces;
-  const groups: THREE.Group[] = [];
-  for (const [i, piece] of pieces.entries()) {
-    const g = await makePieceGroup(piece);
-    if (gen !== renderGeneration) return; // 描いている間に次の描き直しが始まった
+  const groups = await Promise.all(pieces.map((piece) => makePieceGroup(piece)));
+  if (gen !== renderGeneration) return; // 描いている間に次の描き直しが始まった
+  groups.forEach((g, i) => {
     g.userData.index = i;
-    addMarker(g, i, piece);
-    groups.push(g);
-  }
+    addMarker(g, i, pieces[i]!);
+  });
   pieceGroups = groups;
   for (const g of groups) world.add(g);
   await refreshSupports();
@@ -704,14 +706,18 @@ let supportsGeneration = 0;
 async function refreshSupports() {
   if (!course) return;
   const gen = ++supportsGeneration;
-  const pier = await loadPierModels(base);
-  if (gen !== supportsGeneration) return;
-  const decor = await buildDecorations(base, catalog, course.pieces);
-  const worn = await buildWorn(base, catalog, course.pieces);
+  const needsPier = course.pieces.some((p) => p.position.y > 0.1 || p.lift > 0 || catalog.get(p.kind)?.climbs);
+  const needsDecor = course.pieces.some((p) => (catalog.get(p.kind)?.decorations?.length ?? 0) > 0);
+  const needsWorn = course.pieces.some((p) => (p.decorations?.length ?? 0) > 0);
+  const [pier, decor, worn] = await Promise.all([
+    needsPier ? loadPierModels(base) : Promise.resolve(null),
+    needsDecor ? buildDecorations(base, catalog, course.pieces) : Promise.resolve(new THREE.Group()),
+    needsWorn ? buildWorn(base, catalog, course.pieces) : Promise.resolve(new THREE.Group()),
+  ]);
   if (gen !== supportsGeneration) return;
   if (supportsGroup) world.remove(supportsGroup);
   if (decorGroup) world.remove(decorGroup);
-  supportsGroup = buildSupports(catalog, course.pieces, pier, (kind) => modelBounds.get(kind) ?? null);
+  supportsGroup = pier ? buildSupports(catalog, course.pieces, pier, (kind) => modelBounds.get(kind) ?? null) : new THREE.Group();
   decorGroup = decor;
   decorGroup.add(worn);
   world.add(supportsGroup, decorGroup);
@@ -1591,8 +1597,12 @@ const QUICK_PARTS: { id: string; label: string }[] = [
 const quickButtons = new Map<string, HTMLButtonElement>();
 
 function setShelfOpen(openShelf: boolean) {
-  document.body.classList.toggle("shelf-open", openShelf && mode === "build");
-  if (openShelf) closePopups();
+  const show = openShelf && mode === "build";
+  document.body.classList.toggle("shelf-open", show);
+  if (show) {
+    closePopups();
+    shelf?.ensureRendered();
+  }
 }
 
 function isPartAvailable(kind: string): boolean {
@@ -1604,7 +1614,7 @@ function isPartAvailable(kind: string): boolean {
   return def.action === "flex" ? !!flexPlacement(def, open, selectedEnd) : placementsAt(catalog, open, selectedEnd, kind).length > 0;
 }
 
-function buildQuickBar(thumb: ReturnType<typeof createThumbnailer>) {
+function buildQuickBar() {
   const list = $("quickList");
   list.replaceChildren();
   quickButtons.clear();
@@ -1613,13 +1623,9 @@ function buildQuickBar(thumb: ReturnType<typeof createThumbnailer>) {
     const b = document.createElement("button");
     b.className = "qbtn";
     b.title = catalog.get(item.id)?.label ?? item.label;
-    const img = document.createElement("img");
-    img.alt = "";
-    img.width = img.height = 34;
-    thumb(item.id).then((url) => (img.src = url), () => img.remove());
     const span = document.createElement("span");
     span.textContent = item.label;
-    b.append(img, span);
+    b.append(span);
     b.onclick = () => {
       if (selectedKind === item.id) {
         placementIdx++;
@@ -1632,6 +1638,22 @@ function buildQuickBar(thumb: ReturnType<typeof createThumbnailer>) {
     quickButtons.set(item.id, b);
   }
   refreshQuickBar();
+}
+
+/** 初回表示のあとに、クイックバーのアイコン画像を裏で生成して差し込む */
+function loadQuickBarThumbs(thumb: ReturnType<typeof createThumbnailer>) {
+  for (const [id, b] of quickButtons) {
+    const img = document.createElement("img");
+    img.alt = "";
+    img.width = img.height = 34;
+    thumb(id).then(
+      (url) => {
+        img.src = url;
+        b.prepend(img);
+      },
+      () => img.remove(),
+    );
+  }
 }
 
 function refreshQuickBar() {
@@ -1715,20 +1737,18 @@ async function startCourse() {
   freeAim = null;
   freeLevel = 0;
   freeTheta = facingTheta();
-  await renderPieces();
-  paintSelection();
   runLane = (course!.trains as { lane?: string }[] | undefined)?.[0]?.lane ?? "";
   $<HTMLSelectElement>("lane").value = runLane;
   route = buildRoute(catalog, course!.pieces, undefined, undefined, undefined, runLane);
   if (route.notes.length) console.warn("ルート", route.notes);
-  showInfo();
-  refreshEnds();
   // 1本目の電車の種類はコースが決める（棚の選択はそのあとで変えられる）
   const first = (course!.trains as { train: string }[] | undefined)?.[0]?.train;
   const trainSelect = $<HTMLSelectElement>("train");
   if (first && [...trainSelect.options].some((o) => o.value === first)) trainSelect.value = first;
-  await showTrain();
-  await spawnExtras();
+  await Promise.all([renderPieces(), showTrain().then(() => spawnExtras())]);
+  paintSelection();
+  showInfo();
+  refreshEnds();
   $("nextTrain").style.display = extras.length > 0 ? "" : "none";
   void updateGhost();
   shelf.refreshAvailability();
@@ -1765,14 +1785,27 @@ function bakeEnvironment() {
 }
 
 async function main() {
-  await propsLayer.load(base);
-  scenery = await buildScenery(scene, base);
+  const t0 = performance.now();
+  // メタデータ束（1リクエスト）と部屋の GLB 群（並列プリロード）を同時に開始する
+  const sceneryPromise = buildScenery(scene, base);
+  const bundle = await loadBundle(base);
+  const tBundle = performance.now();
+
+  propsLayer.setDefs(bundle.scenery);
+  seedWornDefs(bundle.scenery);
+  seedTrainDefs(bundle.trains);
+  catalog = new Catalog(bundle.rails.map((d) => [d.id, d]));
+
+  if (import.meta.env.DEV) {
+    const { errors: routeErrors, skipped } = checkCatalog(catalog);
+    if (routeErrors.length) console.error(`経路の検算に失敗 ${routeErrors.length} 件\n` + routeErrors.join("\n"));
+    else console.log(`経路の検算 OK（${catalog.size} 種）`);
+    if (skipped.length) console.log(`対象外の道（焼き込み）${skipped.length} 本: ${skipped.join(", ")}`);
+  }
+
+  scenery = await sceneryPromise;
+  const tScenery = performance.now();
   bakeEnvironment();
-  catalog = await loadCatalog(base);
-  const { errors: routeErrors, skipped } = checkCatalog(catalog);
-  if (routeErrors.length) console.error(`経路の検算に失敗 ${routeErrors.length} 件\n` + routeErrors.join("\n"));
-  else console.log(`経路の検算 OK（${catalog.size} 種）`);
-  if (skipped.length) console.log(`対象外の道（焼き込み）${skipped.length} 本: ${skipped.join(", ")}`);
 
   const thumb = createThumbnailer(renderer, loadModel);
   shelf = new Shelf({
@@ -1803,12 +1836,12 @@ async function main() {
     },
     available: (kind) => isPartAvailable(kind),
   });
-  buildQuickBar(thumb);
+  buildQuickBar();
 
   minimap = new Minimap($<HTMLCanvasElement>("minimapCanvas"));
 
   const courseSelect = $<HTMLSelectElement>("course");
-  const sampleNames = (await (await fetch(`${base}data/courses.json`)).json()) as string[];
+  const sampleNames = bundle.courses;
   /** 「新しいコース」・手本・保存したコースの順に選択肢を並べ直す */
   const fillCourses = (select?: string) => {
     courseSelect.length = 0;
@@ -1856,9 +1889,7 @@ async function main() {
   });
 
   const trainSelect = $<HTMLSelectElement>("train");
-  const trainIds = await loadTrainIds(base);
-  const trainDefs = await Promise.all(trainIds.map((id) => loadTrainDef(base, id)));
-  for (const def of trainDefs) trainSelect.add(new Option(def.label || def.id, def.id));
+  for (const def of bundle.trains) trainSelect.add(new Option(def.label || def.id, def.id));
   trainSelect.value = "CommuterCream";
   trainSelect.addEventListener("change", () => showTrain());
 
@@ -2016,13 +2047,29 @@ async function main() {
   });
 
   setMode("build");
-  courseSelect.value = "円";
-  await openCourse("円");
+  const initialName = bundle.initialCourseName ?? "定番レイアウト1";
+  courseSelect.value = initialName;
+  if (bundle.initialCourse) {
+    course = JSON.parse(JSON.stringify(bundle.initialCourse)) as CourseSave;
+    await startCourse();
+  } else {
+    await openCourse(initialName);
+  }
+  const tReady = performance.now();
+  (window as unknown as { __app: Record<string, unknown> }).__app.timing = {
+    startMs: Math.round(t0),
+    bundleMs: Math.round(tBundle - t0),
+    sceneryMs: Math.round(tScenery - t0),
+    courseMs: Math.round(tReady - tScenery),
+    readyMs: Math.round(tReady),
+  };
   const loading = document.getElementById("loading");
   if (loading) {
     loading.classList.add("hide");
     setTimeout(() => loading.remove(), 300);
   }
+  // 初回表示が終わってからクイックバーのアイコンを裏で生成する
+  setTimeout(() => loadQuickBarThumbs(thumb), 0);
 }
 main().catch((err) => {
   console.error(err);

@@ -35,6 +35,11 @@ const COLOURS: Record<string, number> = {
 export const WORN_IDS = ["Tunnel", "Bridge"];
 
 const defs = new Map<string, Promise<WornDef>>();
+export function seedWornDefs(list: Partial<WornDef>[]) {
+  for (const d of list) {
+    if (d.id && WORN_IDS.includes(d.id)) defs.set(d.id, Promise.resolve(d as WornDef));
+  }
+}
 export function loadWorn(base: string, id: string): Promise<WornDef> {
   let p = defs.get(id);
   if (!p) {

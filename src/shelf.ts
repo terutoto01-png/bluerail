@@ -81,12 +81,19 @@ export class Shelf {
   private selected: string | null = null;
   private favorites = load("bluerail.favorites");
   private history = load("bluerail.history");
+  private rendered = false;
   private readonly tiles = document.getElementById("tiles")!;
   private readonly drawers = document.getElementById("drawers")!;
 
   constructor(private hooks: ShelfHooks) {
     this.renderGroups();
     this.renderDrawers();
+  }
+
+  /** 棚を初めて開いたときにタイルとサムネイル生成を開始する（起動直後の帯域を塞がない） */
+  ensureRendered() {
+    if (this.rendered) return;
+    this.rendered = true;
     this.renderTiles();
   }
 
@@ -123,6 +130,7 @@ export class Shelf {
 
   /** 外から状態が変わったので、いまの段を描き直す */
   redraw() {
+    if (!this.rendered) return;
     this.renderTiles();
   }
 
@@ -164,11 +172,12 @@ export class Shelf {
   pushHistory(kind: string) {
     this.history = [kind, ...this.history.filter((k) => k !== kind)].slice(0, HISTORY_MAX);
     save("bluerail.history", this.history);
-    if (this.drawer === "hist") this.renderTiles();
+    if (this.rendered && this.drawer === "hist") this.renderTiles();
   }
 
   /** 端の選択が変わったので、置けない部品を灰色にし直す */
   refreshAvailability() {
+    if (!this.rendered) return;
     for (const el of this.tiles.querySelectorAll<HTMLElement>(".tile")) {
       el.classList.toggle("off", !this.hooks.available(el.dataset.kind!));
     }
@@ -176,6 +185,7 @@ export class Shelf {
 
   select(kind: string | null) {
     this.selected = kind;
+    if (!this.rendered) return;
     for (const el of this.tiles.querySelectorAll<HTMLElement>(".tile")) {
       el.classList.toggle("on", el.dataset.kind === kind);
     }
