@@ -38,9 +38,13 @@ const camera = new THREE.PerspectiveCamera(48, 1, 0.25, 2000);
 camera.position.set(0, 18, -18);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 0, 0);
-// Unity 版と同じ手の動き: 左ドラッグで動かす / 右ドラッグで回す / ホイールで寄る
+// PC: 左ドラッグで移動 / 右ドラッグで回転 / ホイールでズーム
+// スマホ・iPad（案 A）: 1本指で回転 / 2本指でズーム＆平行移動
 controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE };
-controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE };
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.rotateSpeed = coarse ? 0.75 : 1.0;
 controls.screenSpacePanning = false;
 // Unity 版の制限: 距離 10〜42（広い板を出すときは 60）、俯角 10〜83°。極端に引いて家の外を見せない
 controls.minDistance = 10;
@@ -200,11 +204,14 @@ let undoStack: string[] = [];
 };
 
 function resize() {
-  renderer.setSize(innerWidth, innerHeight);
-  camera.aspect = innerWidth / innerHeight;
+  const w = window.visualViewport?.width ?? innerWidth;
+  const h = window.visualViewport?.height ?? innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 addEventListener("resize", resize);
+window.visualViewport?.addEventListener("resize", resize);
 resize();
 
 const clock = new THREE.Clock();
@@ -259,21 +266,47 @@ function updateHud(now: number) {
     minimap.draw(catalog, course.pieces, route, train ? train.s : null, open, selectedEnd);
   }
   const prompt = $("prompt");
-  // 端を選んだのに部品が決まっていないとき
-  document.body.classList.toggle(
-    "hand",
-    mode === "build" && ((!!selectedKind && !selectedEnd) || !!propsLayer.kind || propsLayer.picked !== null),
-  );
-  const free = mode === "build" && !selectedEnd && !!selectedKind && !freeAim;
+  const hasGhostRail = mode === "build" && !!ghost && !!ghostPiece;
+  const hasGhostProp = mode === "build" && !!propsLayer.kind && !!propsLayer.aimAt;
+  const isFreeHand = mode === "build" && !!selectedKind && !selectedEnd;
+  const hasAction =
+    mode === "build" && (hasGhostRail || hasGhostProp || isFreeHand || !!propsLayer.kind || propsLayer.picked !== null);
+  document.body.classList.toggle("has-action", hasAction);
+  document.body.classList.toggle("free-hand", isFreeHand);
+
+  const confirmBtn = $("placeConfirm") as HTMLButtonElement;
+  if (hasGhostRail) {
+    confirmBtn.style.display = "inline-flex";
+    confirmBtn.disabled = false;
+    confirmBtn.classList.toggle("blocked", ghostHits.length > 0);
+    confirmBtn.textContent = ghostHits.length ? "⚠ ここには置けません" : "✓ ここに置く";
+  } else if (hasGhostProp) {
+    confirmBtn.style.display = "inline-flex";
+    confirmBtn.disabled = false;
+    confirmBtn.classList.remove("blocked");
+    confirmBtn.textContent = "✓ ここに置く";
+  } else {
+    confirmBtn.style.display = "none";
+  }
+
+  const verb = coarse ? "タップ" : "クリック";
+  const free = isFreeHand && !freeAim;
   const prop = mode === "build" && !!propsLayer.kind;
   prompt.textContent = prop
     ? propsLayer.aimAt
-      ? "半透明の物をクリックして置く（Q / E で回す）"
-      : "マットをクリックして置く場所を決める"
+      ? "「ここに置く」か半透明の物を" + verb + "して確定"
+      : "マットを" + verb + "して置く場所を決める"
     : free
-      ? "マットをクリックして置く場所を決める（Q / E で回す、PageUp / PageDown で高さ）"
-      : "部品を選んで、線路をつなげる";
-  prompt.style.display = mode === "build" && ((selectedEnd && !selectedKind) || free || prop) ? "block" : "none";
+      ? "白い玉かマットを" + verb + "して置く場所を決める"
+      : selectedEnd && !selectedKind
+        ? "下のバーからつなぐ部品を選ぶ"
+        : open.length === 0 && selectedPiece === null && !selectedKind
+          ? "線路を" + verb + "して「左／右へ分ける」か削除で編集できます"
+          : "白い玉を" + verb + "して線路をつなげる";
+  prompt.style.display =
+    mode === "build" && ((selectedEnd && !selectedKind) || free || prop || (open.length === 0 && selectedPiece === null && !selectedKind))
+      ? "block"
+      : "none";
 }
 
 /** 注視点を部屋の中に留める。カメラも同じだけ動かして、見ている絵を保つ。自由視点のときだけ */
@@ -711,8 +744,8 @@ function toast(text: string) {
 }
 let toastTimer = 0;
 
-const endBall = new THREE.SphereGeometry(0.38, 20, 14);
-const endHit = new THREE.SphereGeometry(0.8, 8, 6);
+const endBall = new THREE.SphereGeometry(coarse ? 0.44 : 0.38, 20, 14);
+const endHit = new THREE.SphereGeometry(0.95, 8, 6);
 const endWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
 const endYellow = new THREE.MeshBasicMaterial({ color: 0xffd23f });
 const hitMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
@@ -784,7 +817,10 @@ function paintSelection() {
   const hand = !!kind && !!centrePath(kind);
   ($("tunnel") as HTMLButtonElement).disabled = !hand;
   ($("bridge") as HTMLButtonElement).disabled = !hand;
+  document.body.classList.toggle("can-branch", !!kind && canBranch(kind.id));
+  if (selectedPiece === null) $("moreMenu").classList.remove("open");
   shelf?.refreshAvailability();
+  refreshQuickBar();
 }
 
 function selectPiece(i: number | null) {
@@ -1019,6 +1055,50 @@ async function replacePiece(kind: string) {
   course.pieces[selectedPiece] = next;
   shelf.pushHistory(kind);
   await afterEdit();
+  setShelfOpen(false);
+}
+
+/** 選んだ直線系部品の口をすべて含む分岐へ差し替えられるか */
+function canBranch(oldKind: string): boolean {
+  const a = catalog.get(oldKind);
+  const b = catalog.get("PointLeft");
+  if (!a || !b || a.ports.length >= b.ports.length) return false;
+  const gap = (x: number, y: number) => Math.abs((((x - y) % 360) + 540) % 360 - 180);
+  return a.ports.every((p) =>
+    b.ports.some(
+      (q) =>
+        Math.hypot(p.position[0] - q.position[0], p.position[1] - q.position[1], p.position[2] - q.position[2]) < 0.02 &&
+        gap(p.euler[1], q.euler[1]) < 1,
+    ),
+  );
+}
+
+/** 選んだ直線を左／右の分岐に差し替え、生えた分岐口をそのまま選択する */
+async function branchPiece(targetKind: "PointLeft" | "PointRight") {
+  if (!course || selectedPiece === null) return;
+  const idx = selectedPiece;
+  const old = course.pieces[idx]!;
+  if (!canBranch(old.kind)) {
+    toast("この部品からは分岐を生やせません");
+    return;
+  }
+  const next: PieceSave = { ...old, kind: targetKind, state: "", branchSet: false, autoFlip: false };
+  withDefaultState(next);
+  const rest = course.pieces.filter((_, j) => j !== idx);
+  const hits = findOverlaps(catalog, rest, next, openPorts(catalog, rest), railHalfWidth());
+  if (hits.length) {
+    toast(refusal(hits));
+    return;
+  }
+  snapshot();
+  course.pieces[idx] = next;
+  shelf.pushHistory(targetKind);
+  await afterEdit();
+  const branchEnd = open.find((o) => o.piece === idx && o.id === "Branch") ?? open.find((o) => o.piece === idx) ?? null;
+  if (branchEnd) {
+    selectEnd(branchEnd);
+    toast("分岐を作りました。下のバーからつなげられます");
+  }
 }
 
 /** マットの点 p（Unity の座標）を狙う。既にある継ぎ目の近くならそこへ吸い、開いた端の近くなら端から伸ばす流れへ渡す */
@@ -1093,6 +1173,7 @@ function selectEnd(end: OpenPort | null) {
   refreshEnds();
   void updateGhost();
   shelf.refreshAvailability();
+  refreshQuickBar();
 }
 
 function selectKind(kind: string | null) {
@@ -1104,7 +1185,9 @@ function selectKind(kind: string | null) {
   selectedKind = kind;
   placementIdx = 0;
   shelf.select(kind);
+  if (kind) setShelfOpen(false);
   void updateGhost();
+  refreshQuickBar();
 }
 
 /** 選んだ端に選んだ部品を置いたときの姿勢（置き方が複数なら placementIdx 番目） */
@@ -1179,6 +1262,7 @@ function holdProp(id: string | null) {
     void updateGhost();
   }
   propsLayer.hold(id);
+  if (id) setShelfOpen(false);
   shelf.redraw();
 }
 
@@ -1231,6 +1315,7 @@ async function confirmPlace() {
   }
   await updateGhost();
   shelf.refreshAvailability();
+  refreshQuickBar();
   fitShadow();
 }
 
@@ -1268,19 +1353,124 @@ async function resetRoute() {
   showInfo();
 }
 
-// --- 入力 ---
+// --- 入力（マルチタッチ誤爆防止 + タッチ選択補助） ---
 const raycaster = new THREE.Raycaster();
+const activePointers = new Set<number>();
+let multiTouchGesture = false;
 let downAt: [number, number] | null = null;
-renderer.domElement.addEventListener("pointerdown", (e) => (downAt = [e.clientX, e.clientY]));
+let downPointerId: number | null = null;
+
+function screenPosOf(worldPos: THREE.Vector3): { x: number; y: number; visible: boolean } {
+  const p = worldPos.clone().project(camera);
+  const w = renderer.domElement.clientWidth || innerWidth;
+  const h = renderer.domElement.clientHeight || innerHeight;
+  return { x: ((p.x + 1) / 2) * w, y: ((1 - p.y) / 2) * h, visible: p.z >= -1 && p.z <= 1 };
+}
+
+/** 画面座標から radiusPx 以内のいちばん近い開いた端を拾う（タッチ選択補助） */
+function pickEndAt(clientX: number, clientY: number, radiusPx: number): OpenPort | null {
+  let best: OpenPort | null = null;
+  let bestDist = radiusPx;
+  for (const o of open) {
+    const wp = world.localToWorld(new THREE.Vector3(o.pos[0], o.pos[1] + 0.3, o.pos[2]));
+    const sp = screenPosOf(wp);
+    if (!sp.visible) continue;
+    const d = Math.hypot(sp.x - clientX, sp.y - clientY);
+    if (d < bestDist) {
+      bestDist = d;
+      best = o;
+    }
+  }
+  return best;
+}
+
+/** 画面座標から radiusPx 以内のいちばん近い分岐レバーを拾う（走行モード用） */
+function pickMarkerAt(clientX: number, clientY: number, radiusPx: number): { idx: number; arm: number } | null {
+  let best: { idx: number; arm: number } | null = null;
+  let bestDist = radiusPx;
+  for (const [key, m] of markers) {
+    const sp = screenPosOf(m.getWorldPosition(new THREE.Vector3()));
+    if (!sp.visible) continue;
+    const d = Math.hypot(sp.x - clientX, sp.y - clientY);
+    if (d < bestDist) {
+      bestDist = d;
+      const [idxStr] = key.split(":");
+      best = { idx: Number(idxStr), arm: m.userData.arm as number };
+    }
+  }
+  return best;
+}
+
+/** 部品のヒット判定。タッチ時は中心で外れても周囲の補助点で拾う */
+function pickPieceObject(clientX: number, clientY: number, isTouch: boolean): { obj: THREE.Object3D; hit: THREE.Intersection } | null {
+  const w = renderer.domElement.clientWidth || innerWidth;
+  const h = renderer.domElement.clientHeight || innerHeight;
+  const offsets: [number, number][] = isTouch ? [[0, 0], [16, 0], [-16, 0], [0, 16], [0, -16]] : [[0, 0]];
+  for (const [dx, dy] of offsets) {
+    const ndc = new THREE.Vector2(((clientX + dx) / w) * 2 - 1, -((clientY + dy) / h) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    const hit = raycaster.intersectObjects(pieceGroups, true)[0];
+    if (!hit) continue;
+    let o: THREE.Object3D | null = hit.object;
+    while (o && o.userData.index === undefined) o = o.parent;
+    if (o) return { obj: o, hit };
+  }
+  return null;
+}
+
+function closePopups() {
+  $("menuPanel").classList.remove("open");
+  $("guidePanel").classList.remove("open");
+  $("moreMenu").classList.remove("open");
+}
+
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  activePointers.add(e.pointerId);
+  if (activePointers.size >= 2) {
+    multiTouchGesture = true;
+    downAt = null;
+    downPointerId = null;
+    return;
+  }
+  downAt = [e.clientX, e.clientY];
+  downPointerId = e.pointerId;
+});
+
+renderer.domElement.addEventListener("pointercancel", (e) => {
+  activePointers.delete(e.pointerId);
+  if (activePointers.size === 0) multiTouchGesture = false;
+  if (downPointerId === e.pointerId) {
+    downAt = null;
+    downPointerId = null;
+  }
+});
+
 renderer.domElement.addEventListener("pointerup", (e) => {
-  // ドラッグ（カメラ操作）はクリックとみなさない
-  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > (e.pointerType === "touch" ? 12 : 4) || !course) return;
-  if (e.button !== 0) return;
-  const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  activePointers.delete(e.pointerId);
+  const wasMulti = multiTouchGesture;
+  if (activePointers.size === 0) multiTouchGesture = false;
+  if (wasMulti || downPointerId !== e.pointerId) return;
+  downPointerId = null;
+
+  const isTouch = e.pointerType === "touch";
+  // ドラッグ（カメラ操作）はタップとみなさない
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > (isTouch ? 16 : 5) || !course) return;
+  if (!isTouch && e.button !== 0) return;
+
+  // 盤面タップで開いているポップアップを閉じる
+  closePopups();
+  if (document.body.classList.contains("shelf-open")) {
+    setShelfOpen(false);
+    return;
+  }
+
+  const w = renderer.domElement.clientWidth || innerWidth;
+  const h = renderer.domElement.clientHeight || innerHeight;
+  const ndc = new THREE.Vector2((e.clientX / w) * 2 - 1, -(e.clientY / h) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
 
   if (mode === "build") {
-    // 優先順は ゴースト（確定） > 端（選択）
+    // 優先順は ゴースト（確定） > 端（選択、画面距離で吸着）
     if (ghost && raycaster.intersectObject(ghost, true).length) {
       void confirmPlace();
       return;
@@ -1289,29 +1479,31 @@ renderer.domElement.addEventListener("pointerup", (e) => {
       confirmProp();
       return;
     }
-    const hit = raycaster.intersectObjects(endGroup.children, false).find((h) => h.object.userData.end !== undefined);
-    if (hit) {
-      selectEnd(open[hit.object.userData.end as number]!);
+    const nearEnd = pickEndAt(e.clientX, e.clientY, isTouch ? 34 : 16);
+    if (nearEnd) {
+      selectEnd(nearEnd);
       return;
     }
-    // 端でなければ部品を選ぶ。何もない所なら選択を外す
-    const part = raycaster.intersectObjects(pieceGroups, true)[0];
-    let o: THREE.Object3D | null = part?.object ?? null;
-    while (o && o.userData.index === undefined) o = o.parent;
+    const hitEnd = raycaster.intersectObjects(endGroup.children, false).find((h) => h.object.userData.end !== undefined);
+    if (hitEnd) {
+      selectEnd(open[hitEnd.object.userData.end as number]!);
+      return;
+    }
+    // 端でなければ部品を選ぶ。何もない所なら自由配置または選択解除
+    const pickedPart = pickPieceObject(e.clientX, e.clientY, isTouch);
+    raycaster.setFromCamera(ndc, camera);
     const placed = propsLayer.kind ? null : propsLayer.pickAt(raycaster);
-    if (o) {
+    if (pickedPart) {
       propsLayer.pick(null);
-      selectPiece(o.userData.index as number);
+      selectPiece(pickedPart.obj.userData.index as number);
     } else if (placed !== null) {
       if (selectedPiece !== null) selectPiece(selectedPiece);
       propsLayer.pick(placed);
     } else if (propsLayer.kind) {
-      // 町なみを持っていれば、マットを狙う
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
       const hit3 = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
       if (hit3) propsLayer.aim(world.worldToLocal(hit3));
     } else if (selectedKind && !selectedEnd) {
-      // 部品を持っていて端を選んでいなければ、マットを狙う（自由配置）。ゴーストの高さの面を指す
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -freeLevel * LEVEL_HEIGHT);
       const hit3 = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
       if (hit3) aimFree(world.worldToLocal(hit3));
@@ -1319,18 +1511,20 @@ renderer.domElement.addEventListener("pointerup", (e) => {
     return;
   }
 
-  // 走行モードでは分岐を切り替える
-  const hit = raycaster.intersectObjects(pieceGroups, true)[0];
-  let o: THREE.Object3D | null = hit?.object ?? null;
-  while (o && o.userData.index === undefined) o = o.parent;
-  if (!o || !hit) return;
-  // 腕が複数ある部品では、触った所にいちばん近いレバーを回す
-  const idx = o.userData.index as number;
+  // 走行モードでは分岐を切り替える（レバー付近の吸着を優先）
+  const nearMarker = pickMarkerAt(e.clientX, e.clientY, isTouch ? 38 : 18);
+  if (nearMarker) {
+    toggleSwitch(nearMarker.idx, nearMarker.arm);
+    return;
+  }
+  const pickedPart = pickPieceObject(e.clientX, e.clientY, isTouch);
+  if (!pickedPart) return;
+  const idx = pickedPart.obj.userData.index as number;
   let arm = 0;
   let best = Infinity;
   for (const [key, m] of markers) {
     if (!key.startsWith(`${idx}:`)) continue;
-    const d = m.getWorldPosition(new THREE.Vector3()).distanceTo(hit.point);
+    const d = m.getWorldPosition(new THREE.Vector3()).distanceTo(pickedPart.hit.point);
     if (d < best) {
       best = d;
       arm = m.userData.arm as number;
@@ -1382,11 +1576,78 @@ function renderViewButtons() {
   });
 }
 
+// --- クイック配置バーと引き出し棚 ---
+const QUICK_PARTS: { id: string; label: string }[] = [
+  { id: "Straight", label: "直線" },
+  { id: "Left", label: "左カーブ" },
+  { id: "Right", label: "右カーブ" },
+  { id: "HalfStraight", label: "1/2直線" },
+  { id: "SlopeUpOriginal", label: "坂のぼり" },
+  { id: "SlopeDownOriginal", label: "坂くだり" },
+  { id: "PointLeft", label: "分岐左" },
+  { id: "PointRight", label: "分岐右" },
+  { id: "FlexRail", label: "曲がる" },
+];
+const quickButtons = new Map<string, HTMLButtonElement>();
+
+function setShelfOpen(openShelf: boolean) {
+  document.body.classList.toggle("shelf-open", openShelf && mode === "build");
+  if (openShelf) closePopups();
+}
+
+function isPartAvailable(kind: string): boolean {
+  if (!course) return true;
+  if (selectedPiece !== null) return replaceable(course.pieces[selectedPiece]!.kind, kind);
+  if (!selectedEnd) return true;
+  const def = catalog.get(kind);
+  if (!def) return false;
+  return def.action === "flex" ? !!flexPlacement(def, open, selectedEnd) : placementsAt(catalog, open, selectedEnd, kind).length > 0;
+}
+
+function buildQuickBar(thumb: ReturnType<typeof createThumbnailer>) {
+  const list = $("quickList");
+  list.replaceChildren();
+  quickButtons.clear();
+  for (const item of QUICK_PARTS) {
+    if (!catalog.has(item.id)) continue;
+    const b = document.createElement("button");
+    b.className = "qbtn";
+    b.title = catalog.get(item.id)?.label ?? item.label;
+    const img = document.createElement("img");
+    img.alt = "";
+    img.width = img.height = 34;
+    thumb(item.id).then((url) => (img.src = url), () => img.remove());
+    const span = document.createElement("span");
+    span.textContent = item.label;
+    b.append(img, span);
+    b.onclick = () => {
+      if (selectedKind === item.id) {
+        placementIdx++;
+        void updateGhost();
+      } else {
+        selectKind(item.id);
+      }
+    };
+    list.append(b);
+    quickButtons.set(item.id, b);
+  }
+  refreshQuickBar();
+}
+
+function refreshQuickBar() {
+  for (const [id, b] of quickButtons) {
+    b.classList.toggle("on", selectedKind === id);
+    b.classList.toggle("off", !isPartAvailable(id));
+  }
+}
+
 function setMode(next: "build" | "drive") {
   mode = next;
   selectedPiece = null;
   paintSelection();
   propsLayer.clearHand();
+  setShelfOpen(false);
+  closePopups();
   document.body.classList.toggle("drive", mode === "drive");
   $("modeLabel").textContent = mode === "build" ? "配置" : "走行";
   $("modeSwitch").innerHTML = `${mode === "build" ? "走る" : "つくる"}<span class="key"> [Tab]</span>`;
@@ -1399,22 +1660,13 @@ function setMode(next: "build" | "drive") {
 }
 
 const GUIDE: [string, string][] = [
-  ["Tab", "配置と走行を切り替える"],
-  ["左ドラッグ", "視点を動かす"],
-  ["右ドラッグ", "視点を回す"],
-  ["ホイール", "寄る / 引く"],
-  ["端をクリック", "ここからつなぐ（白い玉）"],
-  ["ゴーストをクリック", "その部品を置く"],
-  ["同じ部品をもう一度 / C", "置き方を次へ回す"],
-  ["部品を選んでマットをクリック", "自由に置く場所を決める。Q / E で45°回し、PageUp / PageDown で高さ。開いた端の近くなら、そこへ継ぐ"],
-  ["部品をクリック", "選ぶ。棚から同じ形の部品を選ぶと差し替え"],
-  ["Delete", "選んだ部品・町なみを外す"],
-  ["棚「情景」で選んでマットをクリック", "町なみ（ビル・家・木・山）を置く。置いたものをクリックで選び、Q / E で回す"],
-  ["Ctrl+Z", "元に戻す"],
-  ["Esc", "端・部品の選択を外す"],
-  ["スペース / ↑↓ / R", "走る・止まる / 速度 / 向きを反転（走行）"],
-  ["N", "見る編成を次へ（複数の編成があるコース）"],
-  ["分岐レールをクリック", "自動（水色）→ 直進（緑）→ 分岐（だいだい）の順に切り替える（走行）"],
+  ["1本指ドラッグ", "視点を回す（PC: 右ドラッグ）"],
+  ["2本指ピンチ / ドラッグ", "ズーム・視点を動かす（PC: ホイール / 左ドラッグ）"],
+  ["白い玉をタップ", "つなぐ端を選ぶ → 下のバーから部品を選んで「✓ ここに置く」"],
+  ["↻ 向き", "置き方や向きを切り替える（PC: C / Q / E）"],
+  ["線路をタップ", "選択して「左／右へ分ける」「削除」「差し替え」「上下」"],
+  ["パーツ一覧", "全63種の線路・駅・町なみ・電車から選ぶ"],
+  ["走行モード", "スライダーで速度調整、分岐タップで自動→固定切替（PC: Tab / Space / R / N）"],
 ];
 
 // --- コース ---
@@ -1477,8 +1729,10 @@ async function startCourse() {
   if (first && [...trainSelect.options].some((o) => o.value === first)) trainSelect.value = first;
   await showTrain();
   await spawnExtras();
+  $("nextTrain").style.display = extras.length > 0 ? "" : "none";
   void updateGhost();
   shelf.refreshAvailability();
+  refreshQuickBar();
   fitShadow();
   // コース全体が入る位置へカメラを寄せる
   const box = new THREE.Box3().setFromObject(world);
@@ -1543,16 +1797,12 @@ async function main() {
     currentTrain: () => $<HTMLSelectElement>("train").value,
     onTrain: (id) => {
       $<HTMLSelectElement>("train").value = id;
+      setShelfOpen(false);
       void showTrain();
     },
-    available: (kind) =>
-      selectedPiece !== null
-        ? replaceable(course!.pieces[selectedPiece]!.kind, kind)
-        : !selectedEnd ||
-          (catalog.get(kind)?.action === "flex"
-            ? !!flexPlacement(catalog.get(kind)!, open, selectedEnd)
-            : placementsAt(catalog, open, selectedEnd, kind).length > 0),
+    available: (kind) => isPartAvailable(kind),
   });
+  buildQuickBar(thumb);
 
   minimap = new Minimap($<HTMLCanvasElement>("minimapCanvas"));
 
@@ -1619,24 +1869,61 @@ async function main() {
     dd.textContent = v;
     guideList.append(dt, dd);
   }
-  const togglePanel = (id: string) => $(id).classList.toggle("open");
+  const togglePanel = (id: string) => {
+    const el = $(id);
+    const willOpen = !el.classList.contains("open");
+    closePopups();
+    if (willOpen) el.classList.add("open");
+  };
   $("menu").onclick = () => togglePanel("menuPanel");
   $("guide").onclick = () => togglePanel("guidePanel");
   $("undo").onclick = () => void undo();
   $("remove").onclick = () => void deletePiece();
+  $("branchLeft").onclick = () => void branchPiece("PointLeft");
+  $("branchRight").onclick = () => void branchPiece("PointRight");
+  $("openReplace").onclick = () => setShelfOpen(true);
+  $("moreBtn").onclick = () => $("moreMenu").classList.toggle("open");
+  $("pieceClose").onclick = () => {
+    if (selectedPiece !== null) selectPiece(selectedPiece);
+  };
+  $("toggleShelf").onclick = () => setShelfOpen(true);
+  $("closeShelf").onclick = () => setShelfOpen(false);
+
+  $("placeConfirm").onclick = () => {
+    if (ghost && ghostPiece) void confirmPlace();
+    else if (propsLayer.kind && propsLayer.aimAt) confirmProp();
+  };
+  $("placeRotate").onclick = () => {
+    if (propsLayer.kind || propsLayer.picked !== null) propsLayer.turn(1);
+    else if (selectedKind && !selectedEnd) turnFree(1);
+    else {
+      placementIdx++;
+      void updateGhost();
+    }
+  };
+  $("placeCancel").onclick = () => {
+    freeAim = null;
+    selectedKind = null;
+    shelf.select(null);
+    void updateGhost();
+    selectEnd(null);
+    if (propsLayer.kind || propsLayer.picked !== null) {
+      propsLayer.clearHand();
+      shelf.redraw();
+    }
+    refreshQuickBar();
+  };
+
   $("lane").addEventListener("change", () => {
     runLane = $<HTMLSelectElement>("lane").value;
     void resetRoute();
   });
   $("nextTrain").onclick = () => nextTrain();
   $("pickSpan").onclick = () => {
+    $("moreMenu").classList.remove("open");
     spanPicking = true;
-    toast("区間の終わりの部品をクリックしてください");
+    toast("区間の終わりの部品をタップしてください");
   };
-  // キーが無い端末のための、画面のボタン（Q/E・PageUp/PageDown・Esc と同じ）
-  const turnHeld = (step: number) => (propsLayer.kind || propsLayer.picked !== null ? propsLayer.turn(step) : turnFree(step));
-  $("rotL").onclick = () => turnHeld(-1);
-  $("rotR").onclick = () => turnHeld(1);
   $("levUp").onclick = () => {
     freeLevel += 1;
     void updateGhost();
@@ -1645,13 +1932,24 @@ async function main() {
     freeLevel = Math.max(0, freeLevel - 1);
     void updateGhost();
   };
-  $("handCancel").onclick = () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" }));
-  $("copyUp").onclick = () => void copyIslandUp();
-  $("copyNext").onclick = () => void copyContinue();
+  $("copyUp").onclick = () => {
+    $("moreMenu").classList.remove("open");
+    void copyIslandUp();
+  };
+  $("copyNext").onclick = () => {
+    $("moreMenu").classList.remove("open");
+    void copyContinue();
+  };
   $("liftUp").onclick = () => void liftIsland(1);
   $("liftDown").onclick = () => void liftIsland(-1);
-  $("tunnel").onclick = () => void toggleWorn("Tunnel");
-  $("bridge").onclick = () => void toggleWorn("Bridge");
+  $("tunnel").onclick = () => {
+    $("moreMenu").classList.remove("open");
+    void toggleWorn("Tunnel");
+  };
+  $("bridge").onclick = () => {
+    $("moreMenu").classList.remove("open");
+    void toggleWorn("Bridge");
+  };
   $("modeSwitch").onclick = () => setMode(mode === "build" ? "drive" : "build");
 
   $("go").addEventListener("click", () => {
@@ -1686,7 +1984,11 @@ async function main() {
         freeLevel = Math.max(0, freeLevel + (e.code === "PageUp" ? 1 : -1));
         void updateGhost();
       } else if (e.code === "Escape") {
+        setShelfOpen(false);
+        closePopups();
         freeAim = null;
+        selectedKind = null;
+        shelf.select(null);
         void updateGhost();
         selectEnd(null);
         if (selectedPiece !== null) selectPiece(selectedPiece);
@@ -1694,6 +1996,7 @@ async function main() {
           propsLayer.clearHand();
           shelf.redraw();
         }
+        refreshQuickBar();
       } else if (e.code === "Delete" || e.code === "Backspace") {
         if (propsLayer.picked !== null) deleteProp();
         else void deletePiece();

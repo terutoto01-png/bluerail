@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>つなげて！青レール！</title>
 <meta name="description" content="ブラウザ上で青いレールをつなげて電車を走らせる 3D レイアウトシミュレーター">
 <meta property="og:title" content="つなげて！青レール！">
@@ -10,170 +10,264 @@
 <meta property="og:type" content="website">
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <style>
-  /* 色は Unity 版の UiPalette.json（windowlight.*）と同じ役割名 */
+  /* 色は UiPalette（windowlight.*）の役割名に合わせる */
   :root{
     --surface:#FFFEF9; --ink:#273A35; --selected:#E2EADD; --primary:#295A46; --on-primary:#FFFEF9;
-    --part-selected:#F5DF91; --secondary:#4C5A52; --shadow:rgba(39,58,53,.12);
+    --part-selected:#F5DF91; --secondary:#4C5A52; --danger:#B53A2E; --danger-bg:#FCEAE8;
+    --shadow:rgba(39,58,53,.14);
     --font:"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;
+    --safe-t:env(safe-area-inset-top, 0px);
+    --safe-b:env(safe-area-inset-bottom, 0px);
+    --safe-l:env(safe-area-inset-left, 0px);
+    --safe-r:env(safe-area-inset-right, 0px);
   }
-  *{box-sizing:border-box}
-  html,body{margin:0;height:100%;overflow:hidden;background:#d6bd98;font-family:var(--font);color:var(--ink);font-size:18px}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{
+    margin:0;width:100%;height:100%;height:100dvh;overflow:hidden;
+    background:#d6bd98;font-family:var(--font);color:var(--ink);font-size:16px;
+    user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
+    overscroll-behavior:none;
+  }
+  input,textarea{user-select:text;-webkit-user-select:text}
   canvas{display:block;touch-action:none}
   button,select{font:inherit;color:inherit}
-  button{border:0;background:none;cursor:pointer;padding:0}
-  button:disabled{color:var(--secondary);opacity:.45;cursor:default}
+  button{border:0;background:none;cursor:pointer;padding:0;touch-action:manipulation}
+  button:disabled{color:var(--secondary);opacity:.4;cursor:default}
 
-  .card{position:fixed;background:var(--surface);border-radius:10px;box-shadow:0 2px 8px var(--shadow)}
-  .bar{display:flex;align-items:center;height:48px;padding:0 8px;gap:2px}
-  .bar button,.bar .mode{height:32px;padding:0 14px;border-radius:7px;white-space:nowrap}
+  .card{position:fixed;background:var(--surface);border-radius:12px;box-shadow:0 2px 10px var(--shadow)}
+  .bar{display:flex;align-items:center;min-height:44px;padding:4px 6px;gap:4px}
+  .bar button,.bar .mode{min-height:36px;padding:0 12px;border-radius:8px;white-space:nowrap;display:inline-flex;align-items:center;justify-content:center;gap:4px}
   .bar button:hover:not(:disabled){background:var(--selected)}
-  .bar .mode{display:flex;align-items:center;font-weight:700}
-  .bar .mode::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--part-selected);margin-right:8px}
-  .seg button.on{background:var(--part-selected)}
+  .bar button:active:not(:disabled){transform:scale(.97)}
+  .bar .mode{font-weight:700}
+  .bar .mode::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--part-selected);margin-right:4px}
+  .seg button.on{background:var(--part-selected);font-weight:700}
 
-  #topLeft{top:18px;left:18px}
-  /* 部品や町なみを持っているときだけ。回す・高さ・やめる（キーが無い端末のため） */
-  #handBar{top:76px;right:18px;display:none}
-  body.hand #handBar{display:flex}
-  body.drive #handBar{display:none}
-  /* 部品を選んでいるときだけ、左上の下に出る */
-  #pieceBar{top:76px;left:18px;display:none}
-  body.picked #pieceBar{display:flex}
-  body.drive #pieceBar{display:none}
-  #topCenter{top:18px;left:50%;transform:translateX(-50%)}
-  #topRight{position:fixed;top:18px;right:18px;display:flex;gap:18px}
+  /* 上部バー */
+  #topLeft{top:calc(14px + var(--safe-t));left:calc(14px + var(--safe-l))}
+  #topCenter{top:calc(14px + var(--safe-t));left:50%;transform:translateX(-50%)}
+  #topRight{position:fixed;top:calc(14px + var(--safe-t));right:calc(14px + var(--safe-r));display:flex;gap:10px}
   #topRight .card{position:static}
-  #guide{padding:0 18px;height:48px}
-  #modeSwitch{height:48px;padding:0 22px;border-radius:10px;background:var(--primary);color:var(--on-primary);box-shadow:0 2px 8px var(--shadow)}
+  #guide{padding:0 14px;min-height:44px}
+  #modeSwitch{min-height:44px;padding:0 18px;border-radius:12px;background:var(--primary);color:var(--on-primary);font-weight:700;box-shadow:0 2px 10px var(--shadow)}
+  #modeSwitch:active{transform:scale(.97)}
 
-  /* 部品の棚 */
-  #shelf{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);width:min(920px,calc(100vw - 380px));min-width:480px;display:flex;flex-direction:column;gap:4px}
+  /* 下部ボトムドック（配置モードの主操作） */
+  #buildDock{
+    position:fixed;left:50%;bottom:calc(14px + var(--safe-b));transform:translateX(-50%);
+    display:flex;flex-direction:column;align-items:center;gap:8px;
+    width:min(760px,calc(100vw - 24px - var(--safe-l) - var(--safe-r)));
+    pointer-events:none;z-index:20;
+  }
+  #buildDock > *{pointer-events:auto}
+  body.drive #buildDock{display:none}
+  body.shelf-open #buildDock{display:none}
+
+  /* ゴースト／持ち手アクション行（置く・向き・高さ・やめる） */
+  #actionBar{display:none;position:static;flex-wrap:wrap;justify-content:center;padding:5px 8px;gap:6px}
+  body.has-action #actionBar{display:flex}
+  #placeConfirm{background:var(--primary);color:var(--on-primary);font-weight:700;padding:0 18px;min-height:40px}
+  #placeConfirm:hover:not(:disabled){background:#224c3b}
+  #placeConfirm.blocked{background:var(--danger-bg);color:var(--danger)}
+  #placeRotate,#levUp,#levDown{background:var(--selected);font-weight:600;min-height:40px;padding:0 14px}
+  #placeCancel{color:var(--secondary);min-width:40px;min-height:40px}
+  #levUp,#levDown{display:none}
+  body.free-hand #levUp,body.free-hand #levDown{display:inline-flex}
+
+  /* クイック配置バー（定番部品 + パーツ一覧） */
+  #quickDock{position:static;width:100%;display:flex;align-items:center;padding:6px 8px;gap:6px}
+  body.picked #quickDock{display:none}
+  #quickList{
+    display:flex;align-items:center;gap:6px;overflow-x:auto;flex:1;min-width:0;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch;
+  }
+  #quickList::-webkit-scrollbar{display:none}
+  .qbtn{
+    flex:0 0 auto;min-width:66px;height:62px;padding:4px 8px;border-radius:10px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+    background:rgba(226,234,221,.42);font-size:12px;font-weight:600;white-space:nowrap;
+  }
+  .qbtn:hover:not(:disabled){background:var(--selected)}
+  .qbtn.on{background:var(--part-selected);box-shadow:inset 0 0 0 2px #c89f2c}
+  .qbtn.off{opacity:.38}
+  .qbtn img{width:34px;height:34px;object-fit:contain;pointer-events:none}
+  #toggleShelf{
+    flex:0 0 auto;height:62px;padding:0 14px;border-radius:10px;
+    background:var(--primary);color:var(--on-primary);font-weight:700;font-size:13px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;white-space:nowrap;
+  }
+  #toggleShelf:hover{background:#224c3b}
+
+  /* 部品選択時のスリム編集ドック */
+  #pieceDock{
+    display:none;position:static;width:100%;
+    align-items:center;justify-content:center;flex-wrap:wrap;padding:6px 8px;gap:6px;
+  }
+  body.picked #pieceDock{display:flex}
+  #pieceDock button{min-height:42px;padding:0 12px;border-radius:9px;background:var(--selected);font-weight:600;font-size:14px}
+  #pieceDock button:hover:not(:disabled){background:var(--part-selected)}
+  #pieceDock #branchLeft,#pieceDock #branchRight{background:var(--primary);color:var(--on-primary)}
+  #pieceDock #remove{background:var(--danger-bg);color:var(--danger)}
+  #pieceDock #pieceClose{background:none;color:var(--secondary);min-width:40px;padding:0 8px}
+  #branchLeft,#branchRight{display:none}
+  body.can-branch #branchLeft,body.can-branch #branchRight{display:inline-flex}
+
+  /* 「その他」ポップメニュー（区間・複製・装飾） */
+  #moreMenu{
+    display:none;position:static;flex-wrap:wrap;justify-content:center;padding:6px 8px;gap:6px;
+  }
+  #moreMenu.open{display:flex}
+  #moreMenu button{min-height:40px;padding:0 12px;border-radius:8px;background:var(--selected);font-size:14px}
+  #moreMenu button:hover:not(:disabled){background:var(--part-selected)}
+
+  /* 引き出し式の全部品棚（ボトムシート） */
+  #shelf{
+    position:fixed;left:50%;bottom:calc(14px + var(--safe-b));transform:translateX(-50%);
+    width:min(900px,calc(100vw - 24px - var(--safe-l) - var(--safe-r)));
+    display:none;flex-direction:column;gap:4px;z-index:30;
+  }
+  body.shelf-open:not(.drive) #shelf{display:flex}
   #shelf .panel{position:static}
-  #groups{display:flex;justify-content:space-around;height:44px;align-items:center;padding:0 12px}
-  #groups button{height:32px;padding:0 24px;border-radius:7px;font-weight:700}
+  #shelfHead{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;gap:6px}
+  #groups{display:flex;flex:1;justify-content:space-around;min-height:40px;align-items:center;gap:4px}
+  #groups button{min-height:36px;padding:0 16px;border-radius:8px;font-weight:700;font-size:15px}
   #groups button.on{background:var(--selected)}
-  #drawers{display:flex;gap:2px;padding:10px 12px 0}
-  #drawers button{height:32px;padding:0 14px;border-radius:7px;font-size:16px}
-  #drawers button.on{background:var(--part-selected)}
-  #tiles{display:flex;gap:2px;overflow-x:auto;padding:6px 12px 8px;min-height:132px;scrollbar-width:thin;scrollbar-color:var(--primary) var(--selected)}
-  .tile{position:relative;flex:0 0 128px;height:118px;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+  #closeShelf{min-width:40px;min-height:36px;border-radius:8px;font-weight:700;color:var(--secondary)}
+  #closeShelf:hover{background:var(--selected)}
+  #drawers{display:flex;gap:4px;padding:8px 10px 0;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  #drawers::-webkit-scrollbar{display:none}
+  #drawers button{min-height:36px;padding:0 12px;border-radius:8px;font-size:14px;white-space:nowrap;flex:0 0 auto}
+  #drawers button.on{background:var(--part-selected);font-weight:700}
+  #tiles{
+    display:flex;gap:6px;overflow-x:auto;padding:8px 10px 10px;min-height:118px;
+    scrollbar-width:thin;scrollbar-color:var(--primary) var(--selected);
+    -webkit-overflow-scrolling:touch;
+  }
+  .tile{
+    position:relative;flex:0 0 108px;height:104px;border-radius:10px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;
+  }
   .tile:hover{background:var(--selected)}
   .tile.on{background:var(--part-selected)}
-  .tile.off{opacity:.38}
-  .tile img{width:64px;height:64px;object-fit:contain}
-  .tile span{font-size:18px;white-space:nowrap}
-  .tile .star{position:absolute;top:4px;right:6px;width:22px;height:22px;border-radius:50%;background:#e3e4e1;color:#fff;font-size:13px;line-height:22px}
+  .tile.off{opacity:.36}
+  .tile img{width:56px;height:56px;object-fit:contain;pointer-events:none}
+  .tile span{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;padding:0 4px}
+  .tile .star{position:absolute;top:4px;right:4px;width:26px;height:26px;border-radius:50%;background:#e3e4e1;color:#fff;font-size:14px;line-height:26px}
   .tile .star.on{background:var(--part-selected);color:#b8860b}
-  .tile.text span{font-size:15px;white-space:normal;text-align:center;padding:0 8px;word-break:break-all}
-  .empty{margin:auto;color:var(--secondary);font-size:16px}
+  .tile.text span{font-size:13px;white-space:normal;text-align:center;line-height:1.25;word-break:break-word}
+  .empty{margin:auto;color:var(--secondary);font-size:15px}
 
-  /* 運転帯 */
-  #driveBar{left:50%;bottom:20px;transform:translateX(-50%);display:none;align-items:center;gap:10px;padding:0 14px;height:56px}
-  #driveBar button{height:36px;min-width:44px;border-radius:8px;font-size:20px;white-space:nowrap}
-  #driveBar #nextTrain{font-size:15px;padding:0 10px}
-  #driveBar button:hover{background:var(--selected)}
-  #speed{width:160px;accent-color:var(--primary)}
-  #speedText{min-width:6.5em;font-variant-numeric:tabular-nums}
+  /* 運転台（走行モード） */
+  #driveBar{
+    left:50%;bottom:calc(16px + var(--safe-b));transform:translateX(-50%);
+    display:none;align-items:center;gap:10px;padding:8px 14px;min-height:60px;
+    max-width:calc(100vw - 24px - var(--safe-l) - var(--safe-r));z-index:20;
+  }
+  #driveBar button{min-height:44px;min-width:46px;padding:0 10px;border-radius:10px;font-size:20px;white-space:nowrap;background:var(--selected)}
+  #driveBar #go{background:var(--primary);color:var(--on-primary);min-width:52px}
+  #driveBar #nextTrain{font-size:14px;font-weight:600;padding:0 12px}
+  #driveBar button:hover{filter:brightness(.96)}
+  #speed{width:min(220px,36vw);height:32px;accent-color:var(--primary);cursor:pointer}
+  #speed::-webkit-slider-thumb{width:28px;height:28px}
+  #speedText{min-width:5.5em;font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;text-align:right}
   body.drive #driveBar{display:flex}
   body.drive #shelf{display:none}
 
-  /* メニューと案内 */
-  .pop{display:none;top:76px;padding:14px 16px;gap:10px;flex-direction:column;font-size:16px;max-width:360px}
-  .pop.open{display:flex}
-  #menuPanel{left:18px}
-  #guidePanel{right:18px}
-  .pop label{display:flex;flex-direction:column;gap:4px;color:var(--secondary)}
-  .pop select{height:34px;border:1px solid #cfd6ca;border-radius:7px;background:#fff;padding:0 8px;font-size:16px}
-  .pop input[type=text]{height:34px;border:1px solid #cfd6ca;border-radius:7px;background:#fff;padding:0 8px;font-size:16px}
-  .pop .row{display:flex;flex-wrap:wrap;gap:6px}
-  .pop .row button{height:34px;padding:0 12px;border-radius:7px;background:var(--selected)}
-  .pop .row button:hover{background:var(--part-selected)}
-  .pop dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 14px}
-  .pop dt{font-weight:700}
-  .pop dd{margin:0;color:var(--secondary)}
-  #info{color:var(--secondary);font-size:15px}
-  /* ミニマップ（左下）と、端への案内 */
-  #minimap{left:18px;bottom:20px;padding:6px 8px 8px;display:flex;flex-direction:column;gap:2px}
-  #minimap span{font-size:13px;color:var(--secondary)}
-  #minimap canvas{display:block;border-radius:6px}
-  #prompt{position:fixed;left:50%;bottom:calc(20px + 266px);transform:translateX(-50%);background:var(--ink);color:var(--surface);
-          padding:6px 16px;border-radius:8px;font-size:16px;pointer-events:none;display:none}
-  body.drive #prompt{display:none !important}
-  /* 狭い画面・指で触る端末 */
-  @media (max-width:900px), (pointer:coarse){
-    html,body{font-size:15px}
-    .key{display:none}
-    #topLeft .mode{display:none}
-    #pieceBar .mode,#handBar .mode{display:none}
-    .bar{height:44px;padding:0 4px}
-    .bar button,.bar .mode{padding:0 9px;height:34px}
-    #topLeft{top:8px;left:8px}
-    #topRight{top:8px;right:8px;gap:8px}
-    #guide{padding:0 10px;height:44px}
-    #modeSwitch{height:44px;padding:0 12px}
-    #topCenter{top:60px}
-    #pieceBar{top:60px;left:8px;max-width:calc(100vw - 16px);flex-wrap:wrap;height:auto;min-height:44px;padding:4px}
-    body.picked #topCenter{display:none}
-    #handBar{top:112px;right:8px}
-    #shelf{width:calc(100vw - 16px);min-width:0;bottom:8px}
-    #groups{height:38px}
-    #groups button{padding:0 10px}
-    #drawers{overflow-x:auto}
-    #drawers button{padding:0 8px;font-size:14px;white-space:nowrap}
-    #tiles{min-height:100px}
-    .tile{flex:0 0 92px;height:90px}
-    .tile img{width:48px;height:48px}
-    .tile span{font-size:14px}
-    #minimap{display:none}
-    #driveBar{bottom:8px;max-width:calc(100vw - 16px);gap:4px;padding:0 6px;overflow-x:auto}
-    #speed{width:90px}
-    #speedText{min-width:5.5em;font-size:14px}
-    #prompt{bottom:calc(8px + 200px);font-size:14px;max-width:calc(100vw - 24px);white-space:normal;text-align:center}
-    body #toast{top:150px;max-width:calc(100vw - 24px)}
-    .pop{top:60px;max-width:calc(100vw - 16px)}
-    #menuPanel{left:8px}
-    #guidePanel{right:8px}
+  /* メニューと操作ガイド */
+  .pop{
+    display:none;top:calc(68px + var(--safe-t));padding:14px 16px;gap:10px;flex-direction:column;
+    font-size:15px;width:min(360px,calc(100vw - 24px - var(--safe-l) - var(--safe-r)));
+    max-height:calc(100dvh - 100px - var(--safe-t) - var(--safe-b));overflow-y:auto;z-index:40;
   }
-  #toast{position:fixed;left:50%;top:132px;transform:translateX(-50%);background:var(--ink);color:var(--surface);padding:8px 16px;border-radius:8px;font-size:16px;opacity:0;pointer-events:none;transition:opacity .2s}
+  .pop.open{display:flex}
+  #menuPanel{left:calc(14px + var(--safe-l))}
+  #guidePanel{right:calc(14px + var(--safe-r))}
+  .pop label{display:flex;flex-direction:column;gap:4px;color:var(--secondary);font-size:14px}
+  .pop select,.pop input[type=text]{min-height:40px;border:1px solid #cfd6ca;border-radius:8px;background:#fff;padding:0 10px;font-size:16px}
+  .pop .row{display:flex;flex-wrap:wrap;gap:8px}
+  .pop .row button{min-height:40px;padding:0 14px;border-radius:8px;background:var(--selected);font-weight:600}
+  .pop .row button:hover{background:var(--part-selected)}
+  .pop dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px}
+  .pop dt{font-weight:700;white-space:nowrap}
+  .pop dd{margin:0;color:var(--secondary);line-height:1.4}
+  #info{color:var(--secondary);font-size:14px}
+
+  /* ミニマップ（左下、PC と iPad 以上の幅で表示） */
+  #minimap{left:calc(14px + var(--safe-l));bottom:calc(104px + var(--safe-b));padding:6px 8px 8px;display:flex;flex-direction:column;gap:2px;z-index:10}
+  body.shelf-open #minimap{bottom:calc(230px + var(--safe-b))}
+  body.drive #minimap{bottom:calc(92px + var(--safe-b))}
+  #minimap span{font-size:12px;color:var(--secondary)}
+  #minimap canvas{display:block;border-radius:6px}
+
+  /* 案内とトースト（上部中央の下、ドックと重ならない位置） */
+  #prompt{
+    position:fixed;left:50%;top:calc(68px + var(--safe-t));transform:translateX(-50%);
+    background:rgba(39,58,53,.9);color:var(--surface);padding:7px 14px;border-radius:999px;
+    font-size:14px;pointer-events:none;display:none;max-width:calc(100vw - 24px);text-align:center;z-index:15;
+  }
+  body.drive #prompt{display:none !important}
+  #toast{
+    position:fixed;left:50%;top:calc(112px + var(--safe-t));transform:translateX(-50%);
+    background:var(--ink);color:var(--surface);padding:9px 16px;border-radius:10px;
+    font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s;
+    max-width:calc(100vw - 28px);text-align:center;z-index:50;
+  }
   #toast.show{opacity:1}
+
   #credits{border-top:1px solid #e2e6dc;padding-top:8px;font-size:12px;color:var(--secondary);line-height:1.5}
   #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(214,189,152,.92);z-index:100;transition:opacity .25s}
   #loading.hide{opacity:0;pointer-events:none}
   #loading .box{background:var(--surface);color:var(--ink);padding:20px 28px;border-radius:12px;box-shadow:0 4px 20px var(--shadow);text-align:center;max-width:min(420px,calc(100vw - 32px))}
   #loading .title{font-weight:700;font-size:20px;margin-bottom:6px}
   #loading .msg{font-size:15px;color:var(--secondary)}
+
+  /* タッチ端末（スマホ・iPad）共通: キー表記を隠し、押しやすい寸法を確保 */
+  @media (pointer:coarse){
+    .key{display:none}
+    .bar button{min-height:40px}
+    #groups button{min-height:40px}
+    #drawers button{min-height:38px}
+  }
+
+  /* スマホ（狭い画面） */
+  @media (max-width:720px){
+    html,body{font-size:15px}
+    .key{display:none}
+    #topLeft .mode{display:none}
+    #topLeft{top:calc(8px + var(--safe-t));left:calc(8px + var(--safe-l))}
+    #topRight{top:calc(8px + var(--safe-t));right:calc(8px + var(--safe-r));gap:6px}
+    #guide{padding:0 11px;min-height:42px}
+    #modeSwitch{padding:0 14px;min-height:42px}
+    #topCenter{top:calc(58px + var(--safe-t));left:50%;transform:translateX(-50%)}
+    #prompt{top:calc(108px + var(--safe-t));font-size:13px}
+    #toast{top:calc(148px + var(--safe-t))}
+    .pop{top:calc(58px + var(--safe-t))}
+    #menuPanel{left:calc(8px + var(--safe-l))}
+    #guidePanel{right:calc(8px + var(--safe-r))}
+    #minimap{display:none}
+    #buildDock{bottom:calc(8px + var(--safe-b));width:calc(100vw - 16px - var(--safe-l) - var(--safe-r))}
+    #shelf{bottom:calc(8px + var(--safe-b));width:calc(100vw - 16px - var(--safe-l) - var(--safe-r))}
+    .qbtn{min-width:60px;height:58px;font-size:11px}
+    .qbtn img{width:30px;height:30px}
+    #toggleShelf{height:58px;padding:0 11px;font-size:12px}
+    .tile{flex:0 0 92px;height:92px}
+    .tile img{width:46px;height:46px}
+    .tile span{font-size:13px}
+    #driveBar{bottom:calc(10px + var(--safe-b));gap:6px;padding:6px 10px;width:calc(100vw - 16px - var(--safe-l) - var(--safe-r));justify-content:center;flex-wrap:wrap}
+    #speed{width:130px;flex:1;min-width:100px}
+  }
 </style>
 </head>
 <body>
 <div id="topLeft" class="card bar">
   <span id="modeLabel" class="mode">配置</span>
   <button id="menu">メニュー</button>
-  <button id="undo" title="Ctrl+Z">元に戻す<span class="key"> [Ctrl+Z]</span></button>
-</div>
-<div id="pieceBar" class="card bar">
-  <span class="mode">選んだ部品</span>
-  <button id="remove" title="選んだ部品を外す" disabled>削除 [Del]</button>
-  <button id="pickSpan" title="もう1つ部品をクリックして、そこまでの区間を選ぶ（上下・複製の対象になる）">区間を選ぶ</button>
-  <button id="liftUp" title="つながった全体を1階層上げる">全体 ▲</button>
-  <button id="liftDown" title="つながった全体を1階層下げる">全体 ▼</button>
-  <button id="copyUp" title="つながった全体を、1階層上へ複製する（タワー・螺旋を積む）">全体を上へ複製</button>
-  <button id="copyNext" title="つながった全体を、出口の先へもう1組つなぐ（開いた端が入口と出口の2つのとき）">続きに複製</button>
-  <button id="tunnel" title="選んだ部品にトンネルをかぶせる／外す" disabled>トンネル</button>
-  <button id="bridge" title="選んだ部品に鉄橋をかぶせる／外す" disabled>鉄橋</button>
+  <button id="undo" title="元に戻す (Ctrl+Z)">戻す<span class="key"> [Ctrl+Z]</span></button>
 </div>
 <div id="topCenter" class="card bar seg"></div>
 <div id="topRight">
-  <button id="guide" class="card">操作ガイド<span class="key"> [F1]</span></button>
+  <button id="guide" class="card" title="操作ガイド (F1)">？<span class="key"> ガイド</span></button>
   <button id="modeSwitch">走る<span class="key"> [Tab]</span></button>
-</div>
-
-<div id="handBar" class="card bar">
-  <span class="mode">持っている部品</span>
-  <button id="rotL" title="左へ45°（Q）">↺</button>
-  <button id="rotR" title="右へ45°（E）">↻</button>
-  <button id="levUp" title="1階層上（PageUp）">高く</button>
-  <button id="levDown" title="1階層下（PageDown）">低く</button>
-  <button id="handCancel" title="持つのをやめる（Esc）">やめる</button>
 </div>
 
 <div id="menuPanel" class="card pop">
@@ -181,7 +275,7 @@
   <label>電車<select id="train"></select></label>
   <label>見ている編成の車線<select id="lane"><option value="">中央（ふつう）</option><option value="L">左車線（スリム）</option><option value="R">右車線（スリム）</option></select></label>
   <label>保存する名前<input id="saveName" type="text" maxlength="30" placeholder="わたしのコース"></label>
-  <div class="row"><button id="save">この名前で保存</button><button id="export">ファイルへ書き出す</button><button id="import">ファイルを開く</button></div>
+  <div class="row"><button id="save">この名前で保存</button><button id="export">書き出し</button><button id="import">読み込み</button></div>
   <input id="importFile" type="file" accept=".json,application/json" hidden>
   <div id="info"></div>
   <div id="credits">非公式・無料・広告なし（実在の玩具・鉄道会社とは無関係です）<br>3D: Three.js (MIT) / 家具: Kenney (CC0)</div>
@@ -190,8 +284,44 @@
   <dl id="guideList"></dl>
 </div>
 
+<!-- 配置モードの下部操作ドック -->
+<div id="buildDock">
+  <div id="actionBar" class="card bar">
+    <button id="placeConfirm">✓ ここに置く</button>
+    <button id="placeRotate" title="向き・置き方を変える (C / Q / E)">↻ 向き</button>
+    <button id="levUp" title="1階層上 (PageUp)">▲ 高く</button>
+    <button id="levDown" title="1階層下 (PageDown)">▼ 低く</button>
+    <button id="placeCancel" title="やめる (Esc)">✕</button>
+  </div>
+  <div id="moreMenu" class="card bar">
+    <button id="pickSpan">区間を選ぶ</button>
+    <button id="copyUp">上へ複製</button>
+    <button id="copyNext">続きに複製</button>
+    <button id="tunnel" disabled>トンネル</button>
+    <button id="bridge" disabled>鉄橋</button>
+  </div>
+  <div id="pieceDock" class="card bar">
+    <button id="branchLeft">左へ分ける</button>
+    <button id="branchRight">右へ分ける</button>
+    <button id="remove" disabled>削除</button>
+    <button id="openReplace">差し替え</button>
+    <button id="liftUp">▲ 上げる</button>
+    <button id="liftDown">▼ 下げる</button>
+    <button id="moreBtn">その他 ⋯</button>
+    <button id="pieceClose" title="選択を外す (Esc)">✕</button>
+  </div>
+  <div id="quickDock" class="card">
+    <div id="quickList"></div>
+    <button id="toggleShelf">パーツ<br>一覧</button>
+  </div>
+</div>
+
+<!-- 引き出し式の全部品棚（ボトムシート） -->
 <div id="shelf">
-  <div class="card panel" id="groups"></div>
+  <div class="card panel" id="shelfHead">
+    <div id="groups"></div>
+    <button id="closeShelf" title="棚を閉じる">✕</button>
+  </div>
   <div class="card panel">
     <div id="drawers"></div>
     <div id="tiles"></div>
@@ -199,12 +329,13 @@
 </div>
 
 <div id="driveBar" class="card">
-  <button id="go" title="走る / 止まる（スペース）">⏸</button>
-  <button id="reverse" title="進む向きを反転（R）">⇄</button>
-  <button id="nextTrain" title="見る編成を次へ（N）">次の編成<span class="key"> [N]</span></button>
-  <input id="speed" type="range" min="-8" max="8" step="0.1" title="速度（↑↓）。負は後退">
+  <button id="go" title="走る / 止まる (スペース)">⏸</button>
+  <button id="reverse" title="進む向きを反転 (R)">⇄</button>
+  <input id="speed" type="range" min="-8" max="8" step="0.1" title="速度 (↑↓)。負は後退">
   <span id="speedText"></span>
+  <button id="nextTrain" title="見る編成を次へ (N)">次の編成<span class="key"> [N]</span></button>
 </div>
+
 <div id="minimap" class="card"><span>コース全体</span><canvas id="minimapCanvas"></canvas></div>
 <div id="prompt">部品を選んで、線路をつなげる</div>
 <div id="toast"></div>
