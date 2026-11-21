@@ -11,6 +11,18 @@ import { cycle, junctionsOf, readState, writeState } from "./points";
 import { loadTrainDef, seedTrainDefs, Train } from "./train";
 import { CameraRig, type CameraMode } from "./cameras";
 import { freePlacement, isUpstream, openPorts, placementsAt, type OpenPort } from "./place";
+import {
+  applyPlanToPieces,
+  branchVariants,
+  planAutoClose,
+  planBranchAndMerge,
+  planBranchToPoint,
+  planMatTap,
+  planMergeIntoPiece,
+  planToPort,
+  type BranchVariant,
+  type EasyPlan,
+} from "./easy";
 import { findOverlaps, type Hit } from "./overlap";
 import { downloadCourse, loadSaved, parseCourse, saveCourse, savedNames } from "./storage";
 import { Shelf } from "./shelf";
@@ -107,6 +119,17 @@ let pieceGroups: THREE.Group[] = [];
 const markers = new Map<string, THREE.Mesh>();
 
 // 配置
+let buildStyle: "easy" | "parts" = "easy";
+let easyLevel = 0;
+let easyPlans: EasyPlan[] = [];
+let easyPlanIdx = 0;
+let easyStartAim: [number, number] | null = null;
+let easyBranchSource: number | null = null;
+let easyBranchHints: BranchVariant[] = [];
+let easyGhostGroup: THREE.Group | null = null;
+let easyGhostGeneration = 0;
+let hiddenByEasyGhost: number[] = [];
+
 let selectedKind: string | null = null;
 let placementIdx = 0;
 // 自由配置（端を選ばずにマットへ置く）。狙いの点・進む向き（45°刻み）・階層
@@ -122,6 +145,8 @@ const propsLayer = new PropsLayer();
 world.add(propsLayer.group);
 const endGroup = new THREE.Group();
 world.add(endGroup);
+const branchHintGroup = new THREE.Group();
+world.add(branchHintGroup);
 let ghost: THREE.Group | null = null;
 let ghostPiece: PieceSave | null = null;
 let ghostHits: Hit[] = [];
@@ -202,6 +227,21 @@ let undoStack: string[] = [];
   place: () => confirmPlace(),
   undo: () => undo(),
   setMode: (m: "build" | "drive") => setMode(m),
+  get buildStyle() {
+    return buildStyle;
+  },
+  setBuildStyle: (s: "easy" | "parts") => setBuildStyle(s),
+  get easyLevel() {
+    return easyLevel;
+  },
+  get easyPlans() {
+    return easyPlans;
+  },
+  get easyBranchSource() {
+    return easyBranchSource;
+  },
+  confirmEasyPlan: () => confirmEasyPlan(),
+  easyAutoClose: () => triggerEasyAutoClose(),
 };
 
 function resize() {
@@ -268,47 +308,84 @@ function updateHud(now: number) {
     minimap.draw(catalog, course.pieces, route, train ? train.s : null, open, selectedEnd);
   }
   const prompt = $("prompt");
-  const hasGhostRail = mode === "build" && !!ghost && !!ghostPiece;
-  const hasGhostProp = mode === "build" && !!propsLayer.kind && !!propsLayer.aimAt;
+  const isEasy = mode === "build" && buildStyle === "easy";
+  const hasEasyPlan = isEasy && easyPlans.length > 0 && !!easyGhostGroup;
+  const hasGhostRail = mode === "build" && !isEasy && !!ghost && !!ghostPiece;
+  const hasGhostProp = mode === "build" && !isEasy && !!propsLayer.kind && !!propsLayer.aimAt;
   const hasGhostTrain = mode === "build" && !!trainGhost;
-  const isFreeHand = mode === "build" && !!selectedKind && !selectedEnd;
+  const isFreeHand = mode === "build" && !isEasy && !!selectedKind && !selectedEnd;
   const hasAction =
     mode === "build" &&
-    (hasGhostRail || hasGhostProp || hasGhostTrain || !!trainHand || isFreeHand || !!propsLayer.kind || propsLayer.picked !== null);
+    (hasEasyPlan || hasGhostRail || hasGhostProp || hasGhostTrain || !!trainHand || isFreeHand || (!isEasy && (!!propsLayer.kind || propsLayer.picked !== null)));
   document.body.classList.toggle("has-action", hasAction);
   document.body.classList.toggle("free-hand", isFreeHand);
 
   const confirmBtn = $("placeConfirm") as HTMLButtonElement;
-  if (hasGhostRail) {
+  const rotateBtn = $("placeRotate") as HTMLButtonElement;
+  if (hasEasyPlan) {
+    const plan = easyPlans[easyPlanIdx]!;
+    confirmBtn.style.display = "inline-flex";
+    confirmBtn.disabled = false;
+    confirmBtn.classList.remove("blocked");
+    confirmBtn.textContent = `✓ ${plan.summary}`;
+    const canCycle = easyPlans.length > 1 || plan.kind === "start";
+    rotateBtn.style.display = canCycle ? "inline-flex" : "none";
+    rotateBtn.textContent = plan.kind === "start" ? "↻ 向き" : `↻ 別の案 (${easyPlanIdx + 1}/${easyPlans.length})`;
+  } else if (hasGhostRail) {
     confirmBtn.style.display = "inline-flex";
     confirmBtn.disabled = false;
     confirmBtn.classList.toggle("blocked", ghostHits.length > 0);
     confirmBtn.textContent = ghostHits.length ? "⚠ ここには置けません" : "✓ ここに置く";
+    rotateBtn.style.display = "inline-flex";
+    rotateBtn.textContent = "↻ 向き";
   } else if (hasGhostProp) {
     confirmBtn.style.display = "inline-flex";
     confirmBtn.disabled = false;
     confirmBtn.classList.remove("blocked");
     confirmBtn.textContent = "✓ ここに置く";
+    rotateBtn.style.display = "inline-flex";
+    rotateBtn.textContent = "↻ 向き";
   } else if (hasGhostTrain) {
     confirmBtn.style.display = "inline-flex";
     confirmBtn.disabled = false;
     confirmBtn.classList.toggle("blocked", !!trainGhost!.reason);
     confirmBtn.textContent = trainGhost!.reason ? "⚠ ここには置けません" : "✓ ここに置く";
+    rotateBtn.style.display = "inline-flex";
+    rotateBtn.textContent = "↻ 向き";
   } else {
     confirmBtn.style.display = "none";
+    rotateBtn.style.display = "inline-flex";
+    rotateBtn.textContent = "↻ 向き";
   }
 
   const verb = coarse ? "タップ" : "クリック";
   const free = isFreeHand && !freeAim;
-  const prop = mode === "build" && !!propsLayer.kind;
+  const prop = mode === "build" && !isEasy && !!propsLayer.kind;
   const holdingTrain = mode === "build" && !!trainHand;
-  prompt.textContent = holdingTrain
-    ? hasGhostTrain
+  if (holdingTrain) {
+    prompt.textContent = hasGhostTrain
       ? trainGhost!.reason
         ? trainGhost!.reason
         : "「ここに置く」で確定 / 「↻ 向き」で反転"
-      : "電車を置きたいレールを" + verb + "してください"
-    : prop
+      : "電車を置きたいレールを" + verb + "してください";
+    prompt.style.display = "block";
+  } else if (isEasy) {
+    if (hasEasyPlan) {
+      prompt.textContent = "「✓」か半透明の線路を" + verb + "して確定（別の場所を" + verb + "するとやり直し）";
+    } else if (easyBranchSource !== null) {
+      prompt.textContent = "分岐を伸ばしたい場所（または合流したい直線）を" + verb;
+    } else if (selectedPiece !== null) {
+      prompt.textContent = "このレールを削除したり、電車を置けます";
+    } else if (selectedEnd) {
+      prompt.textContent = "伸ばしたい場所・つなぐ玉・合流したい直線を" + verb;
+    } else if (open.length > 0) {
+      prompt.textContent = "行きたい場所を" + verb + "すると自動でレールがつながります";
+    } else {
+      prompt.textContent = "直線を" + verb + "して自動分岐、またはマットを" + verb + "して新しい線路";
+    }
+    prompt.style.display = "block";
+  } else {
+    prompt.textContent = prop
       ? propsLayer.aimAt
         ? "「ここに置く」か半透明の物を" + verb + "して確定"
         : "マットを" + verb + "して置く場所を決める"
@@ -319,11 +396,12 @@ function updateHud(now: number) {
           : open.length === 0 && selectedPiece === null && !selectedKind
             ? "線路を" + verb + "して編集・分岐できます"
             : "白い玉を" + verb + "して線路をつなげる";
-  prompt.style.display =
-    mode === "build" &&
-    (holdingTrain || (selectedEnd && !selectedKind) || free || prop || (open.length === 0 && selectedPiece === null && !selectedKind))
-      ? "block"
-      : "none";
+    prompt.style.display =
+      mode === "build" &&
+      ((selectedEnd && !selectedKind) || free || prop || (open.length === 0 && selectedPiece === null && !selectedKind))
+        ? "block"
+        : "none";
+  }
 }
 
 /** 注視点を部屋の中に留める。カメラも同じだけ動かして、見ている絵を保つ。自由視点のときだけ */
@@ -573,6 +651,9 @@ function holdTrain(kind: string | null, handMode: "add" | "move" = "add") {
   selectedKind = null;
   shelf?.select(null);
   freeAim = null;
+  clearEasyPlan();
+  easyBranchSource = null;
+  refreshBranchHints();
   selectEnd(null);
   if (selectedPiece !== null) selectPiece(selectedPiece);
   if (propsLayer.kind || propsLayer.picked !== null) {
@@ -582,6 +663,7 @@ function holdTrain(kind: string | null, handMode: "add" | "move" = "add") {
   void updateGhost();
   refreshQuickBar();
   trainHand = { kind, mode: handMode };
+  updateEasyUi();
   updateHud(performance.now());
 }
 
@@ -942,6 +1024,13 @@ const ghostBadMaterial = new THREE.MeshBasicMaterial({
   depthWrite: false,
 });
 
+const ghostBranchMaterial = new THREE.MeshBasicMaterial({
+  color: 0x2dd4bf,
+  transparent: true,
+  opacity: 0.72,
+  depthWrite: false,
+});
+
 /** 部品1つぶんのグループ。ghost なら半透明の1色で描く（置けないなら赤） */
 async function makePieceGroup(piece: PieceSave, ghosted = false, bad = false): Promise<THREE.Group> {
   const model = (await loadModel(piece.kind)).clone();
@@ -1184,15 +1273,19 @@ function selectPiece(i: number | null) {
 
 /** 部品が増減・入れ替わったあとの描き直し。経路・端・橋脚・ゴーストを合わせる */
 async function afterEdit() {
+  clearEasyPlan();
+  easyBranchSource = null;
   selectedPiece = null;
   spanSet = null;
   spanPicking = false;
   await renderPieces();
   selectedEnd = null;
   refreshEnds();
+  refreshBranchHints();
   await resetRoute();
   await updateGhost();
   paintSelection();
+  updateEasyUi();
   fitShadow();
 }
 
@@ -1667,24 +1760,255 @@ async function undo() {
   await afterEdit();
 }
 
-/** 部品が減った・入れ替わったときの組み直し。列車は線の始点へ戻す */
+/** 部品が減った・入れ替わったときの組み直し。列車は安全な位置へ戻す */
 async function resetRoute() {
   if (!course) return;
   route = buildRoute(catalog, course.pieces, undefined, undefined, undefined, runLane);
   if (train && route.points.length) train.place(route, Math.min(route.length, train.length));
   else if (!train) await showTrain();
   lastTailSeg = tailSegOf(route);
-  // 2本目以降も、始点へ戻す
+  // 2本目以降も、他編成と重ならない空き位置へ置く
   for (const run of extras) {
     withRun(run, () => {
-      // 部品が減ると番号が詰まるので、口の名前から引き直す
       runEntry = runEntry && entryFor(runEntry.port);
       route = buildRoute(catalog, course!.pieces, runEntry, undefined, undefined, runLane);
-      if (route.points.length) train!.place(route, headStart(route, train!, 0));
+      if (route.points.length) {
+        const freeS = findFreeSpawnS(route, train!.length);
+        train!.place(route, freeS ?? headStart(route, train!, 0));
+      }
       lastTailSeg = tailSegOf(route);
     });
   }
   showInfo();
+}
+
+// --- かんたん配置モード ---
+const branchHintGeo = new THREE.SphereGeometry(coarse ? 0.48 : 0.42, 20, 14);
+const branchHintMat = new THREE.MeshBasicMaterial({ color: 0x28c7ff });
+
+function clearEasyGhost() {
+  easyGhostGeneration++;
+  if (easyGhostGroup) world.remove(easyGhostGroup);
+  easyGhostGroup = null;
+  for (const idx of hiddenByEasyGhost) {
+    const g = pieceGroups[idx];
+    if (g) g.visible = true;
+  }
+  hiddenByEasyGhost = [];
+}
+
+function clearEasyPlan() {
+  easyPlans = [];
+  easyPlanIdx = 0;
+  easyStartAim = null;
+  clearEasyGhost();
+  updateEasyUi();
+  updateHud(performance.now());
+}
+
+function refreshBranchHints() {
+  branchHintGroup.clear();
+  easyBranchHints = [];
+  if (mode !== "build" || buildStyle !== "easy" || easyBranchSource === null || easyPlans.length > 0 || !course) return;
+  const variants = branchVariants(catalog, course.pieces, open, easyBranchSource, railHalfWidth());
+  const seen = new Set<string>();
+  for (const v of variants) {
+    const key = `${Math.round(v.branchPort.pos[0] * 2)},${Math.round(v.branchPort.pos[2] * 2)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const k = easyBranchHints.length;
+    easyBranchHints.push(v);
+    const ball = new THREE.Mesh(branchHintGeo, branchHintMat);
+    ball.position.set(v.branchPort.pos[0], v.branchPort.pos[1] + 0.36, v.branchPort.pos[2]);
+    const hit = new THREE.Mesh(endHit, hitMaterial);
+    hit.userData.branchHint = k;
+    hit.position.copy(ball.position);
+    branchHintGroup.add(ball, hit);
+  }
+}
+
+function updateEasyUi() {
+  const isEasy = mode === "build" && buildStyle === "easy";
+  document.body.classList.toggle("easy-mode", isEasy);
+  document.body.classList.toggle("easy-picked", isEasy && selectedPiece !== null && easyPlans.length === 0);
+  const styleEasyBtn = document.getElementById("styleEasy");
+  const stylePartsBtn = document.getElementById("styleParts");
+  if (styleEasyBtn) styleEasyBtn.classList.toggle("on", buildStyle === "easy");
+  if (stylePartsBtn) stylePartsBtn.classList.toggle("on", buildStyle === "parts");
+  const levLabel = document.getElementById("easyLevLabel");
+  if (levLabel) levLabel.textContent = easyLevel === 0 ? "地上" : `${easyLevel + 1}階`;
+  const downBtn = document.getElementById("easyLevDown") as HTMLButtonElement | null;
+  const upBtn = document.getElementById("easyLevUp") as HTMLButtonElement | null;
+  if (downBtn) downBtn.disabled = easyLevel <= 0;
+  if (upBtn) upBtn.disabled = easyLevel >= 4;
+  const closeBtn = document.getElementById("easyCloseLoop") as HTMLButtonElement | null;
+  if (closeBtn) closeBtn.disabled = open.length < 2;
+  const hintEl = document.getElementById("easyPieceHint");
+  if (hintEl && selectedPiece !== null && isEasy) {
+    const verb = coarse ? "タップ" : "クリック";
+    hintEl.textContent = easyBranchSource !== null ? `分岐元（伸ばす先を${verb}）` : "レール選択中";
+  }
+}
+
+function setBuildStyle(next: "easy" | "parts") {
+  if (buildStyle === next) return;
+  buildStyle = next;
+  clearEasyPlan();
+  easyBranchSource = null;
+  selectedKind = null;
+  freeAim = null;
+  shelf?.select(null);
+  setShelfOpen(false);
+  if (propsLayer.kind || propsLayer.picked !== null) {
+    propsLayer.clearHand();
+    shelf?.redraw();
+  }
+  void updateGhost();
+  if (buildStyle === "easy") {
+    if (selectedEnd) easyLevel = Math.max(0, Math.round(selectedEnd.pos[1] / LEVEL_HEIGHT));
+    if (selectedPiece !== null && course) {
+      easyBranchSource = branchVariants(catalog, course.pieces, open, selectedPiece, railHalfWidth()).length > 0 ? selectedPiece : null;
+    }
+  }
+  refreshBranchHints();
+  paintSelection();
+  refreshQuickBar();
+  updateEasyUi();
+  updateHud(performance.now());
+}
+
+function easySelectPiece(idx: number | null) {
+  clearEasyPlan();
+  if (idx !== null) selectedEnd = null;
+  selectedPiece = idx === selectedPiece ? null : idx;
+  if (selectedPiece !== null && course) {
+    const vars = branchVariants(catalog, course.pieces, open, selectedPiece, railHalfWidth());
+    easyBranchSource = vars.length > 0 ? selectedPiece : null;
+    easyLevel = Math.max(0, Math.round(course.pieces[selectedPiece]!.position.y / LEVEL_HEIGHT));
+  } else {
+    easyBranchSource = null;
+  }
+  refreshEnds();
+  paintSelection();
+  refreshBranchHints();
+  updateEasyUi();
+  updateHud(performance.now());
+}
+
+function showEasyPlans(plans: EasyPlan[], startAim: [number, number] | null = null) {
+  easyPlans = plans;
+  easyPlanIdx = 0;
+  easyStartAim = startAim;
+  refreshBranchHints();
+  updateEasyUi();
+  void renderEasyGhost();
+}
+
+async function renderEasyGhost() {
+  const gen = ++easyGhostGeneration;
+  clearEasyGhost();
+  easyGhostGeneration = gen;
+  const plan = easyPlans[easyPlanIdx];
+  if (!plan || mode !== "build" || buildStyle !== "easy") {
+    updateHud(performance.now());
+    return;
+  }
+  const repMeshes = await Promise.all(
+    plan.replacements.map(async (r) => {
+      const g = await makePieceGroup(r.piece, true, false);
+      g.traverse((o) => {
+        if (o instanceof THREE.Mesh) o.material = ghostBranchMaterial;
+      });
+      return g;
+    }),
+  );
+  const addMeshes = await Promise.all(plan.additions.map((p) => makePieceGroup(p, true, false)));
+  if (gen !== easyGhostGeneration) return;
+
+  const group = new THREE.Group();
+  for (const g of repMeshes) group.add(g);
+  for (const g of addMeshes) group.add(g);
+
+  // 差し替え対象の既存レールを一時的に隠して分岐ゴーストを見やすくする
+  hiddenByEasyGhost = [];
+  for (const r of plan.replacements) {
+    for (const idx of r.indices) {
+      const pg = pieceGroups[idx];
+      if (pg && pg.visible) {
+        pg.visible = false;
+        hiddenByEasyGhost.push(idx);
+      }
+    }
+  }
+  easyGhostGroup = group;
+  world.add(group);
+  updateHud(performance.now());
+}
+
+async function confirmEasyPlan() {
+  const plan = easyPlans[easyPlanIdx];
+  if (!course || !plan) return;
+  snapshot();
+  const targetTip = plan.nextEnd;
+  const hadReplacements = plan.replacements.length > 0;
+  const planKind = plan.kind;
+  clearEasyPlan();
+  easyBranchSource = null;
+  selectedPiece = null;
+  refreshBranchHints();
+
+  course.pieces = applyPlanToPieces(course.pieces, plan);
+  await renderPieces();
+  open = openPorts(catalog, course.pieces);
+  selectedEnd = targetTip
+    ? open.find((o) => Math.hypot(o.pos[0] - targetTip.pos[0], o.pos[1] - targetTip.pos[1], o.pos[2] - targetTip.pos[2]) <= 0.06) ?? null
+    : null;
+  if (selectedEnd) easyLevel = Math.max(0, Math.round(selectedEnd.pos[1] / LEVEL_HEIGHT));
+  refreshEnds();
+  paintSelection();
+
+  if (!hadReplacements && train) {
+    rebuildAll();
+  } else {
+    await resetRoute();
+  }
+  fitShadow();
+  updateEasyUi();
+  updateHud(performance.now());
+
+  if (planKind === "connect") toast(open.length === 0 ? "ループがつながりました！" : "線路をつなぎました！");
+  else if (planKind === "merge" || planKind === "branch-merge") toast("分岐して合流しました！");
+  else if (planKind === "branch") toast("分岐をつくりました！そのまま続けて伸ばせます");
+  else if (planKind === "start") toast("新しい線路を置きました！行きたい場所をタップして伸ばせます");
+}
+
+function triggerEasyAutoClose() {
+  if (!course || open.length < 2) {
+    toast("つなげられる開いた端が2つ以上ありません");
+    return;
+  }
+  const plans = planAutoClose(catalog, course.pieces, open, selectedEnd, railHalfWidth());
+  if (!plans.length) {
+    toast("この位置どうしは自動で閉じられませんでした。近くまで伸ばしてからお試しください");
+    return;
+  }
+  showEasyPlans(plans);
+}
+
+function pickBranchHintAt(clientX: number, clientY: number, radiusPx: number): BranchVariant | null {
+  let best: BranchVariant | null = null;
+  let bestDist = radiusPx;
+  for (const v of easyBranchHints) {
+    const wp = world.localToWorld(new THREE.Vector3(v.branchPort.pos[0], v.branchPort.pos[1] + 0.36, v.branchPort.pos[2]));
+    const sp = screenPosOf(wp);
+    if (!sp.visible) continue;
+    const d = Math.hypot(sp.x - clientX, sp.y - clientY);
+    if (d < bestDist) {
+      bestDist = d;
+      best = v;
+    }
+  }
+  return best;
 }
 
 // --- 入力（マルチタッチ誤爆防止 + タッチ選択補助） ---
@@ -1818,6 +2142,112 @@ renderer.domElement.addEventListener("pointerup", (e) => {
         void updateTrainGhost();
       } else {
         toast("電車を置きたいレールをタップしてください");
+      }
+      return;
+    }
+    // かんたんモードの盤面タップ処理（左右レールを意識せずに行き先・分岐先をタップ）
+    if (buildStyle === "easy") {
+      // 1. 仮置きゴーストをタップしたら確定
+      if (easyGhostGroup && raycaster.intersectObject(easyGhostGroup, true).length) {
+        void confirmEasyPlan();
+        return;
+      }
+      // 2. 分岐ヒントの水色玉をタップしたら、その方向へ分岐プレビュー
+      const nearHint = pickBranchHintAt(e.clientX, e.clientY, isTouch ? 36 : 18);
+      if (nearHint) {
+        showEasyPlans([
+          {
+            replacements: nearHint.replacement ? [nearHint.replacement] : [],
+            additions: [],
+            nextEnd: nearHint.branchPort,
+            summary: "ここから分岐する",
+            kind: "branch",
+            score: 0,
+          },
+        ]);
+        return;
+      }
+      // 3. 開いた端（白・黄色の玉）をタップ
+      const nearEnd = pickEndAt(e.clientX, e.clientY, isTouch ? 34 : 16);
+      const hitEnd = nearEnd
+        ? null
+        : raycaster.intersectObjects(endGroup.children, false).find((h) => h.object.userData.end !== undefined);
+      const tappedEnd = nearEnd ?? (hitEnd ? open[hitEnd.object.userData.end as number]! : null);
+      if (tappedEnd) {
+        if (selectedEnd && !(tappedEnd.piece === selectedEnd.piece && tappedEnd.id === selectedEnd.id)) {
+          const plans = planToPort(catalog, course.pieces, open, selectedEnd, tappedEnd, railHalfWidth());
+          if (plans.length) {
+            showEasyPlans(plans);
+            return;
+          }
+          toast("そこへは直接つなげませんでした。選択する端を切り替えます");
+        } else if (easyBranchSource !== null) {
+          const plans = planBranchToPoint(
+            catalog,
+            course.pieces,
+            open,
+            easyBranchSource,
+            tappedEnd.pos[0],
+            tappedEnd.pos[2],
+            Math.round(tappedEnd.pos[1] / LEVEL_HEIGHT),
+            railHalfWidth(),
+          );
+          if (plans.length) {
+            showEasyPlans(plans);
+            return;
+          }
+        }
+        clearEasyPlan();
+        easyBranchSource = null;
+        selectedPiece = null;
+        refreshBranchHints();
+        selectEnd(tappedEnd);
+        if (selectedEnd) easyLevel = Math.max(0, Math.round(selectedEnd.pos[1] / LEVEL_HEIGHT));
+        updateEasyUi();
+        updateHud(performance.now());
+        return;
+      }
+      // 4. 既存レールをタップ（合流 / 分岐元選択 / 削除・電車配置）
+      const pickedPart = pickPieceObject(e.clientX, e.clientY, isTouch);
+      if (pickedPart) {
+        const idx = pickedPart.obj.userData.index as number;
+        if (selectedEnd && selectedEnd.piece !== idx) {
+          const plans = planMergeIntoPiece(catalog, course.pieces, open, selectedEnd, idx, railHalfWidth());
+          if (plans.length) {
+            showEasyPlans(plans);
+            return;
+          }
+        }
+        if (easyBranchSource !== null && easyBranchSource !== idx) {
+          const plans = planBranchAndMerge(catalog, course.pieces, open, easyBranchSource, idx, railHalfWidth());
+          if (plans.length) {
+            showEasyPlans(plans);
+            return;
+          }
+        }
+        easySelectPiece(idx);
+        return;
+      }
+      // 5. マットをタップ（自動ルート生成、または選択中の分岐元から自動で分岐＆延長）
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -easyLevel * LEVEL_HEIGHT);
+      const hit3 = raycaster.ray.intersectPlane(plane, new THREE.Vector3());
+      if (hit3) {
+        const local = world.worldToLocal(hit3);
+        if (easyBranchSource !== null) {
+          const plans = planBranchToPoint(catalog, course.pieces, open, easyBranchSource, local.x, local.z, easyLevel, railHalfWidth());
+          if (plans.length) {
+            showEasyPlans(plans);
+          } else {
+            toast("その方向へは分岐をつなげませんでした。別の場所をタップしてみてください");
+          }
+          return;
+        }
+        const plans = planMatTap(catalog, course.pieces, open, selectedEnd, local.x, local.z, easyLevel, facingTheta(), railHalfWidth());
+        if (plans.length) {
+          showEasyPlans(plans, plans[0]!.kind === "start" ? [local.x, local.z] : null);
+        } else {
+          toast("そこへは線路が重なるため繋げませんでした。別の場所をタップしてみてください");
+        }
       }
       return;
     }
@@ -2010,6 +2440,8 @@ function refreshQuickBar() {
 
 function setMode(next: "build" | "drive") {
   mode = next;
+  clearEasyPlan();
+  easyBranchSource = null;
   selectedPiece = null;
   paintSelection();
   propsLayer.clearHand();
@@ -2023,17 +2455,18 @@ function setMode(next: "build" | "drive") {
   rig.set("free");
   renderViewButtons();
   refreshEnds();
+  refreshBranchHints();
+  updateEasyUi();
   void updateGhost();
   applySpeed();
 }
 
 const GUIDE: [string, string][] = [
-  ["1本指ドラッグ", "視点を回す（PC: 右ドラッグ）"],
-  ["2本指ピンチ / ドラッグ", "ズーム・視点を動かす（PC: ホイール / 左ドラッグ）"],
-  ["白い玉をタップ", "つなぐ端を選ぶ → 下のバーから部品を選んで「✓ ここに置く」"],
-  ["↻ 向き", "置き方や向きを切り替える（PC: C / Q / E）"],
-  ["線路をタップ", "選択して「左／右へ分ける」「削除」「差し替え」「上下」"],
-  ["パーツ一覧", "全63種の線路・駅・町なみ・電車から選ぶ"],
+  ["かんたんモード（標準）", "行きたい場所をタップするだけで直線・左右カーブ・坂を自動選択。もう一度タップか「✓」で確定"],
+  ["自動分岐・合流", "直線をタップ → 伸ばしたい場所（または別の直線）をタップで分岐や合流を自動作成"],
+  ["輪にする / 高さ", "「🔄 輪にする」で開いた端どうしを自動接続。「地上 / 2階」を変えると坂を自動で挟みます"],
+  ["くわしくモード", "全63種の線路・駅・踏切・複線・町なみを自由に選べます（いつでも切替可能）"],
+  ["カメラ操作", "1本指ドラッグで回転、2本指ピンチ／ドラッグで拡大移動（PC: 右ドラッグ / ホイール / 左ドラッグ）"],
   ["走行モード", "スライダーで速度調整、分岐タップで自動→固定切替（PC: Tab / Space / R / N）"],
 ];
 
@@ -2071,7 +2504,10 @@ async function startCourse() {
   extras = [];
   runEntry = undefined;
   occupied = new Set();
-  world.remove(...world.children.filter((c) => c !== endGroup && c !== propsLayer.group));
+  clearEasyPlan();
+  easyBranchSource = null;
+  easyLevel = 0;
+  world.remove(...world.children.filter((c) => c !== endGroup && c !== branchHintGroup && c !== propsLayer.group));
   course!.props ??= [];
   propsLayer.clearHand();
   propsLayer.setItems(course!.props);
@@ -2080,6 +2516,7 @@ async function startCourse() {
   undoStack = [];
   selectedEnd = null;
   selectedPiece = null;
+  open = openPorts(catalog, course!.pieces);
   freeAim = null;
   freeLevel = 0;
   freeTheta = facingTheta();
@@ -2097,6 +2534,8 @@ async function startCourse() {
   paintSelection();
   showInfo();
   refreshEnds();
+  refreshBranchHints();
+  updateEasyUi();
   updateTrainUi();
   void updateGhost();
   shelf.refreshAvailability();
@@ -2285,8 +2724,41 @@ async function main() {
   $("toggleShelf").onclick = () => setShelfOpen(true);
   $("closeShelf").onclick = () => setShelfOpen(false);
 
+  // かんたんモードの操作ボタン
+  $("styleEasy").onclick = () => setBuildStyle("easy");
+  $("styleParts").onclick = () => setBuildStyle("parts");
+  $("toEasyBtn").onclick = () => setBuildStyle("easy");
+  $("easyLevUp").onclick = () => {
+    easyLevel = Math.min(4, easyLevel + 1);
+    updateEasyUi();
+  };
+  $("easyLevDown").onclick = () => {
+    easyLevel = Math.max(0, easyLevel - 1);
+    updateEasyUi();
+  };
+  $("easyCloseLoop").onclick = () => triggerEasyAutoClose();
+  $("easyAddTrain").onclick = () => holdTrain(trainSelect.value || "CommuterCream", "add");
+  $("easyTrainHere").onclick = () => {
+    if (selectedPiece === null) return;
+    const idx = selectedPiece;
+    const id = trainSelect.value || "CommuterCream";
+    holdTrain(id, "add");
+    trainAim = { piece: idx, candIdx: 0 };
+    void updateTrainGhost();
+  };
+  $("easyDelete").onclick = () => void deletePiece();
+  $("easyPieceCancel").onclick = () => easySelectPiece(null);
+
+  const rotateEasyStart = (steps: number) => {
+    if (!course || !easyStartAim) return;
+    freeTheta += (steps * Math.PI) / 4;
+    const plans = planMatTap(catalog, course.pieces, open, null, easyStartAim[0], easyStartAim[1], easyLevel, freeTheta, railHalfWidth());
+    if (plans.length) showEasyPlans(plans, easyStartAim);
+  };
+
   $("placeConfirm").onclick = () => {
     if (trainGhost) void confirmTrainPlace();
+    else if (buildStyle === "easy" && easyPlans.length > 0) void confirmEasyPlan();
     else if (ghost && ghostPiece) void confirmPlace();
     else if (propsLayer.kind && propsLayer.aimAt) confirmProp();
   };
@@ -2294,6 +2766,13 @@ async function main() {
     if (trainHand && trainAim) {
       trainAim.candIdx++;
       void updateTrainGhost();
+    } else if (buildStyle === "easy" && easyPlans.length > 0) {
+      const cur = easyPlans[easyPlanIdx]!;
+      if (cur.kind === "start") rotateEasyStart(1);
+      else if (easyPlans.length > 1) {
+        easyPlanIdx = (easyPlanIdx + 1) % easyPlans.length;
+        void renderEasyGhost();
+      }
     } else if (propsLayer.kind || propsLayer.picked !== null) propsLayer.turn(1);
     else if (selectedKind && !selectedEnd) turnFree(1);
     else {
@@ -2303,6 +2782,9 @@ async function main() {
   };
   $("placeCancel").onclick = () => {
     holdTrain(null);
+    clearEasyPlan();
+    easyBranchSource = null;
+    refreshBranchHints();
     freeAim = null;
     selectedKind = null;
     shelf.select(null);
@@ -2313,6 +2795,7 @@ async function main() {
       shelf.redraw();
     }
     refreshQuickBar();
+    updateEasyUi();
   };
 
   $("lane").addEventListener("change", () => {
@@ -2377,16 +2860,35 @@ async function main() {
       if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") {
         e.preventDefault();
         void undo();
+      } else if (e.code === "Enter") {
+        if (trainGhost) void confirmTrainPlace();
+        else if (buildStyle === "easy" && easyPlans.length > 0) void confirmEasyPlan();
+        else if (ghost && ghostPiece) void confirmPlace();
+        else if (propsLayer.kind && propsLayer.aimAt) confirmProp();
       } else if (e.code === "KeyQ" || e.code === "KeyE") {
         const step = e.code === "KeyQ" ? -1 : 1;
-        if (propsLayer.kind || propsLayer.picked !== null) propsLayer.turn(step);
+        if (buildStyle === "easy" && easyPlans.length > 0) {
+          if (easyPlans[easyPlanIdx]!.kind === "start") rotateEasyStart(step);
+          else if (easyPlans.length > 1) {
+            easyPlanIdx = (easyPlanIdx + step + easyPlans.length) % easyPlans.length;
+            void renderEasyGhost();
+          }
+        } else if (propsLayer.kind || propsLayer.picked !== null) propsLayer.turn(step);
         else turnFree(step);
-      }
-      else if (e.code === "PageUp" || e.code === "PageDown") {
-        freeLevel = Math.max(0, freeLevel + (e.code === "PageUp" ? 1 : -1));
-        void updateGhost();
+      } else if (e.code === "PageUp" || e.code === "PageDown") {
+        const delta = e.code === "PageUp" ? 1 : -1;
+        if (buildStyle === "easy") {
+          easyLevel = Math.min(4, Math.max(0, easyLevel + delta));
+          updateEasyUi();
+        } else {
+          freeLevel = Math.max(0, freeLevel + delta);
+          void updateGhost();
+        }
       } else if (e.code === "Escape") {
         holdTrain(null);
+        clearEasyPlan();
+        easyBranchSource = null;
+        refreshBranchHints();
         setShelfOpen(false);
         closePopups();
         freeAim = null;
@@ -2400,13 +2902,21 @@ async function main() {
           shelf.redraw();
         }
         refreshQuickBar();
+        updateEasyUi();
       } else if (e.code === "Delete" || e.code === "Backspace") {
         if (propsLayer.picked !== null) deleteProp();
         else void deletePiece();
-      }
-      else if (e.code === "KeyC") {
-        placementIdx++;
-        void updateGhost();
+      } else if (e.code === "KeyC") {
+        if (buildStyle === "easy" && easyPlans.length > 0) {
+          if (easyPlans[easyPlanIdx]!.kind === "start") rotateEasyStart(1);
+          else if (easyPlans.length > 1) {
+            easyPlanIdx = (easyPlanIdx + 1) % easyPlans.length;
+            void renderEasyGhost();
+          }
+        } else {
+          placementIdx++;
+          void updateGhost();
+        }
       }
     } else if (e.code === "Space") {
       e.preventDefault();

@@ -8,6 +8,7 @@
     "build": "npm run bundle && tsc --noEmit && vite build",
     "preview": "vite preview",
     "check": "tsc --noEmit",
+    "test:easy": "node scripts/test-easy.mjs",
     "deploy": "npm run build && node scripts/deploy-pages.mjs"
   },
   "dependencies": {

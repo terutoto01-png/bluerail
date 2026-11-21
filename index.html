@@ -74,9 +74,45 @@
   #levUp,#levDown{display:none}
   body.free-hand #levUp,body.free-hand #levDown{display:inline-flex}
 
-  /* クイック配置バー（定番部品 + パーツ一覧） */
+  /* クイック配置バー（くわしくモード：定番部品 + パーツ一覧） */
   #quickDock{position:static;width:100%;display:flex;align-items:center;padding:6px 8px;gap:6px}
-  body.picked #quickDock{display:none}
+  body.picked #quickDock,body.easy-mode #quickDock{display:none}
+  #toEasyBtn{
+    flex:0 0 auto;height:62px;padding:0 11px;border-radius:10px;
+    background:var(--part-selected);color:var(--ink);font-weight:700;font-size:12px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;white-space:nowrap;
+  }
+  #toEasyBtn:hover{filter:brightness(.96)}
+
+  /* かんたん配置バー（デフォルト） */
+  #easyDock{
+    display:none;position:static;width:auto;max-width:100%;
+    align-items:center;justify-content:center;flex-wrap:wrap;padding:6px 8px;gap:6px;
+  }
+  body.easy-mode #easyDock{display:flex}
+  #easyDock .seg{display:inline-flex;background:rgba(226,234,221,.65);border-radius:9px;padding:2px;gap:2px}
+  #easyDock .seg button{min-height:38px;padding:0 11px;border-radius:7px;font-weight:700;font-size:13px;white-space:nowrap}
+  #easyDock .seg button.on{background:var(--primary);color:var(--on-primary)}
+  #easyDock .levelCtl{display:inline-flex;align-items:center;background:var(--selected);border-radius:9px;padding:2px;gap:2px}
+  #easyDock .levelCtl button{min-width:34px;min-height:38px;border-radius:7px;font-weight:700;font-size:14px}
+  #easyDock .levelCtl button:hover:not(:disabled){background:var(--part-selected)}
+  #easyDock .levelCtl span{padding:0 6px;font-size:13px;font-weight:700;min-width:3.4em;text-align:center;white-space:nowrap}
+  #easyDock > button{min-height:42px;padding:0 12px;border-radius:9px;background:var(--selected);font-weight:700;font-size:13px;white-space:nowrap}
+  #easyDock > button:hover:not(:disabled){background:var(--part-selected)}
+  #easyCloseLoop{background:var(--primary) !important;color:var(--on-primary) !important}
+  #easyCloseLoop:disabled{background:var(--selected) !important;color:var(--secondary) !important}
+
+  /* かんたんモードの部品選択バー */
+  #easyPieceBar{
+    display:none;position:static;align-items:center;justify-content:center;flex-wrap:wrap;padding:5px 8px;gap:6px;
+  }
+  body.easy-mode.easy-picked #easyPieceBar{display:flex}
+  #easyPieceBar .hint{font-size:13px;font-weight:700;color:var(--primary);padding:0 6px;white-space:nowrap}
+  #easyPieceBar button{min-height:38px;padding:0 12px;border-radius:8px;background:var(--selected);font-weight:600;font-size:13px;white-space:nowrap}
+  #easyPieceBar button:hover:not(:disabled){background:var(--part-selected)}
+  #easyPieceBar #easyDelete{background:var(--danger-bg);color:var(--danger)}
+  #easyPieceBar #easyPieceCancel{background:none;color:var(--secondary);min-width:36px;padding:0 8px}
+
   #quickList{
     display:flex;align-items:center;gap:6px;overflow-x:auto;flex:1;min-width:0;
     scrollbar-width:none;-webkit-overflow-scrolling:touch;
@@ -98,12 +134,12 @@
   }
   #toggleShelf:hover{background:#224c3b}
 
-  /* 部品選択時のスリム編集ドック */
+  /* 部品選択時のスリム編集ドック（くわしくモード用） */
   #pieceDock{
     display:none;position:static;width:100%;
     align-items:center;justify-content:center;flex-wrap:wrap;padding:6px 8px;gap:6px;
   }
-  body.picked #pieceDock{display:flex}
+  body.picked:not(.easy-mode) #pieceDock{display:flex}
   #pieceDock button{min-height:42px;padding:0 12px;border-radius:9px;background:var(--selected);font-weight:600;font-size:14px}
   #pieceDock button:hover:not(:disabled){background:var(--part-selected)}
   #pieceDock #branchLeft,#pieceDock #branchRight{background:var(--primary);color:var(--on-primary)}
@@ -256,7 +292,12 @@
     #shelf{bottom:calc(8px + var(--safe-b));width:calc(100vw - 16px - var(--safe-l) - var(--safe-r))}
     .qbtn{min-width:60px;height:58px;font-size:11px}
     .qbtn img{width:30px;height:30px}
-    #toggleShelf{height:58px;padding:0 11px;font-size:12px}
+    #toggleShelf,#toEasyBtn{height:58px;padding:0 10px;font-size:12px}
+    #easyDock{padding:5px;gap:4px}
+    #easyDock > button{min-height:36px;padding:0 7px;font-size:11px}
+    #easyDock .seg button{min-height:32px;padding:0 7px;font-size:11px}
+    #easyDock .levelCtl button{min-width:25px;min-height:32px;font-size:12px}
+    #easyDock .levelCtl span{font-size:11px;min-width:2.3em;padding:0 2px}
     .tile{flex:0 0 92px;height:92px}
     .tile img{width:46px;height:46px}
     .tile span{font-size:13px}
@@ -324,7 +365,27 @@
     <button id="moreBtn">その他 ⋯</button>
     <button id="pieceClose" title="選択を外す (Esc)">✕</button>
   </div>
+  <div id="easyPieceBar" class="card bar">
+    <span id="easyPieceHint" class="hint"></span>
+    <button id="easyTrainHere">🚃 ここへ電車</button>
+    <button id="easyDelete">🗑 削除</button>
+    <button id="easyPieceCancel" title="選択を外す (Esc)">✕</button>
+  </div>
+  <div id="easyDock" class="card">
+    <div class="seg" role="group" aria-label="つくり方モード">
+      <button id="styleEasy" class="on">かんたん</button>
+      <button id="styleParts">くわしく</button>
+    </div>
+    <div class="levelCtl" title="目標の高さ（自動で坂をつなぎます）">
+      <button id="easyLevDown" aria-label="低く">▼</button>
+      <span id="easyLevLabel">地上</span>
+      <button id="easyLevUp" aria-label="高く">▲</button>
+    </div>
+    <button id="easyCloseLoop" disabled title="開いた端どうしを自動でつなぎます">🔄 輪にする</button>
+    <button id="easyAddTrain" title="好きなレールへ電車を置きます">🚃 電車</button>
+  </div>
   <div id="quickDock" class="card">
+    <button id="toEasyBtn" title="かんたんモードへ戻る">かんたん<br>へ戻る</button>
     <div id="quickList"></div>
     <button id="toggleShelf">パーツ<br>一覧</button>
   </div>
