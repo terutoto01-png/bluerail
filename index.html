@@ -281,9 +281,10 @@
   <label>コース<select id="course"></select></label>
   <label><span id="trainLabel">電車（1編成）</span><select id="train"></select></label>
   <div class="row">
-    <button id="addTrain">＋ 編成を追加</button>
+    <button id="addTrain">＋ レールへ追加</button>
+    <button id="moveTrain">この編成を移動</button>
     <button id="menuNextTrain" disabled>次の編成</button>
-    <button id="removeTrain" disabled>この編成を外す</button>
+    <button id="removeTrain" disabled>外す</button>
   </div>
   <label>見ている編成の車線<select id="lane"><option value="">中央（ふつう）</option><option value="L">左車線（スリム）</option><option value="R">右車線（スリム）</option></select></label>
   <label>保存する名前<input id="saveName" type="text" maxlength="30" placeholder="わたしのコース"></label>
@@ -306,6 +307,7 @@
     <button id="placeCancel" title="やめる (Esc)">✕</button>
   </div>
   <div id="moreMenu" class="card bar">
+    <button id="placeTrainHere">ここへ電車を置く</button>
     <button id="pickSpan">区間を選ぶ</button>
     <button id="copyUp">上へ複製</button>
     <button id="copyNext">続きに複製</button>

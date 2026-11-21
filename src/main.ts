@@ -270,9 +270,11 @@ function updateHud(now: number) {
   const prompt = $("prompt");
   const hasGhostRail = mode === "build" && !!ghost && !!ghostPiece;
   const hasGhostProp = mode === "build" && !!propsLayer.kind && !!propsLayer.aimAt;
+  const hasGhostTrain = mode === "build" && !!trainGhost;
   const isFreeHand = mode === "build" && !!selectedKind && !selectedEnd;
   const hasAction =
-    mode === "build" && (hasGhostRail || hasGhostProp || isFreeHand || !!propsLayer.kind || propsLayer.picked !== null);
+    mode === "build" &&
+    (hasGhostRail || hasGhostProp || hasGhostTrain || !!trainHand || isFreeHand || !!propsLayer.kind || propsLayer.picked !== null);
   document.body.classList.toggle("has-action", hasAction);
   document.body.classList.toggle("free-hand", isFreeHand);
 
@@ -287,6 +289,11 @@ function updateHud(now: number) {
     confirmBtn.disabled = false;
     confirmBtn.classList.remove("blocked");
     confirmBtn.textContent = "✓ ここに置く";
+  } else if (hasGhostTrain) {
+    confirmBtn.style.display = "inline-flex";
+    confirmBtn.disabled = false;
+    confirmBtn.classList.toggle("blocked", !!trainGhost!.reason);
+    confirmBtn.textContent = trainGhost!.reason ? "⚠ ここには置けません" : "✓ ここに置く";
   } else {
     confirmBtn.style.display = "none";
   }
@@ -294,19 +301,27 @@ function updateHud(now: number) {
   const verb = coarse ? "タップ" : "クリック";
   const free = isFreeHand && !freeAim;
   const prop = mode === "build" && !!propsLayer.kind;
-  prompt.textContent = prop
-    ? propsLayer.aimAt
-      ? "「ここに置く」か半透明の物を" + verb + "して確定"
-      : "マットを" + verb + "して置く場所を決める"
-    : free
-      ? "白い玉かマットを" + verb + "して置く場所を決める"
-      : selectedEnd && !selectedKind
-        ? "下のバーからつなぐ部品を選ぶ"
-        : open.length === 0 && selectedPiece === null && !selectedKind
-          ? "線路を" + verb + "して編集・分岐できます"
-          : "白い玉を" + verb + "して線路をつなげる";
+  const holdingTrain = mode === "build" && !!trainHand;
+  prompt.textContent = holdingTrain
+    ? hasGhostTrain
+      ? trainGhost!.reason
+        ? trainGhost!.reason
+        : "「ここに置く」で確定 / 「↻ 向き」で反転"
+      : "電車を置きたいレールを" + verb + "してください"
+    : prop
+      ? propsLayer.aimAt
+        ? "「ここに置く」か半透明の物を" + verb + "して確定"
+        : "マットを" + verb + "して置く場所を決める"
+      : free
+        ? "白い玉かマットを" + verb + "して置く場所を決める"
+        : selectedEnd && !selectedKind
+          ? "下のバーからつなぐ部品を選ぶ"
+          : open.length === 0 && selectedPiece === null && !selectedKind
+            ? "線路を" + verb + "して編集・分岐できます"
+            : "白い玉を" + verb + "して線路をつなげる";
   prompt.style.display =
-    mode === "build" && ((selectedEnd && !selectedKind) || free || prop || (open.length === 0 && selectedPiece === null && !selectedKind))
+    mode === "build" &&
+    (holdingTrain || (selectedEnd && !selectedKind) || free || prop || (open.length === 0 && selectedPiece === null && !selectedKind))
       ? "block"
       : "none";
 }
@@ -516,12 +531,173 @@ function syncCourseTrains() {
     train: t.def.id,
     at: Math.max(0, Math.round((r.canonicalHead(t.s, t.length) - t.length) * 10) / 10),
     port: e?.port ?? "Start",
+    piece: e?.piece,
     lane,
   });
   course.trains = [
     entryOf(train, route, runEntry, runLane),
     ...extras.map((x) => entryOf(x.train, x.route, x.entry, x.lane)),
   ];
+}
+
+// --- 好きなレール位置へ電車を置く（追加・移動） ---
+let trainHand: { kind: string; mode: "add" | "move" } | null = null;
+let trainAim: { piece: number; candIdx: number } | null = null;
+let trainGhost: {
+  train: Train;
+  route: Route;
+  headS: number;
+  entry: { piece: number; port: string };
+  reason: string | null;
+} | null = null;
+let trainGhostGeneration = 0;
+
+function clearTrainGhost() {
+  trainGhostGeneration++;
+  if (trainGhost) world.remove(trainGhost.train.root);
+  trainGhost = null;
+}
+
+/** 電車を持った状態に入る（null で解除）。好きなレールをタップして配置・移動できる */
+function holdTrain(kind: string | null, handMode: "add" | "move" = "add") {
+  clearTrainGhost();
+  trainAim = null;
+  if (!kind) {
+    trainHand = null;
+    updateHud(performance.now());
+    return;
+  }
+  if (mode !== "build") setMode("build");
+  closePopups();
+  setShelfOpen(false);
+  selectedKind = null;
+  shelf?.select(null);
+  freeAim = null;
+  selectEnd(null);
+  if (selectedPiece !== null) selectPiece(selectedPiece);
+  if (propsLayer.kind || propsLayer.picked !== null) {
+    propsLayer.clearHand();
+    shelf?.redraw();
+  }
+  void updateGhost();
+  refreshQuickBar();
+  trainHand = { kind, mode: handMode };
+  updateHud(performance.now());
+}
+
+/** 仮置き電車が既存の他の編成と重なるか */
+function overlapsOtherTrains(r: Route, headS: number, trainLength: number, ignoreActive: boolean): boolean {
+  const others = [
+    ...(!ignoreActive && train && route ? [{ t: train, r: route }] : []),
+    ...extras.map((x) => ({ t: x.train, r: x.route })),
+  ];
+  if (!others.length) return false;
+  const pts: { x: number; y: number; z: number }[] = [];
+  for (let s = headS - trainLength; s <= headS + 0.01; s += 1.0) pts.push(r.at(s));
+  for (const o of others) {
+    for (let s = o.t.s - o.t.length; s <= o.t.s + 0.01; s += 1.0) {
+      const q = o.r.at(s);
+      for (const p of pts) {
+        if (Math.abs(p.y - q.y) < 1.0 && Math.hypot(p.x - q.x, p.z - q.z) < 1.8) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** タップしたレール pieceIdx を始点にした配置候補（順方向・逆方向）のゴーストを描く */
+async function updateTrainGhost() {
+  const gen = ++trainGhostGeneration;
+  if (mode !== "build" || !course || !trainHand || !trainAim) {
+    if (trainGhost) world.remove(trainGhost.train.root);
+    trainGhost = null;
+    return;
+  }
+  const piece = course.pieces[trainAim.piece];
+  const def = piece && catalog.of(piece);
+  if (!piece || !def) return;
+
+  const t = await Train.create(base, await loadTrainDef(base, trainHand.kind));
+  if (gen !== trainGhostGeneration) return;
+
+  // その部品の口ごとにルートを組み、向き（先頭の進行方向）の違う候補を並べる
+  const allCands: { entry: { piece: number; port: string }; route: Route }[] = [];
+  const seenDir: number[] = [];
+  for (const port of def.ports) {
+    const r = buildRoute(catalog, course.pieces, { piece: trainAim.piece, port: port.id }, undefined, undefined, runLane);
+    if (!r.points.length) continue;
+    const h0 = r.at(0).heading;
+    if (seenDir.some((h) => Math.abs(Math.atan2(Math.sin(h - h0), Math.cos(h - h0))) < 0.25)) continue;
+    seenDir.push(h0);
+    allCands.push({ entry: { piece: trainAim.piece, port: port.id }, route: r });
+  }
+  const usable = allCands.filter((c) => c.route.length + 0.01 >= t.length);
+  const pool = usable.length ? usable : allCands;
+  if (!pool.length) {
+    toast("このレールには電車を置けません");
+    return;
+  }
+  const picked = pool[((trainAim.candIdx % pool.length) + pool.length) % pool.length]!;
+  const headS = Math.min(picked.route.length, t.length);
+  let reason: string | null = null;
+  if (picked.route.length + 0.01 < t.length) reason = "この線路は電車より短いので置けません";
+  else if (overlapsOtherTrains(picked.route, headS, t.length, trainHand.mode === "move")) reason = "ほかの電車と重なるので置けません";
+
+  t.place(picked.route, headS);
+  const gMat = reason ? ghostBadMaterial : ghostMaterial;
+  t.root.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      o.material = gMat;
+      o.castShadow = false;
+    }
+  });
+  if (trainGhost) world.remove(trainGhost.train.root);
+  trainGhost = { train: t, route: picked.route, headS, entry: picked.entry, reason };
+  world.add(t.root);
+  updateHud(performance.now());
+}
+
+/** 仮置き中の電車を正式に配置・移動する */
+async function confirmTrainPlace() {
+  if (!course || !trainHand || !trainGhost) return;
+  if (trainGhost.reason) {
+    toast(trainGhost.reason);
+    return;
+  }
+  const { entry, route: r, headS } = trainGhost;
+  const hand = trainHand;
+  const t = await Train.create(base, await loadTrainDef(base, hand.kind));
+  t.place(r, headS);
+  t.speed = 0;
+
+  if (hand.mode === "move") {
+    if (train) world.remove(train.root);
+  } else if (train && route) {
+    extras.push({ train, route, lastTailSeg, occupied, entry: runEntry, lane: runLane, speed, running });
+  }
+
+  world.add(t.root);
+  train = t;
+  route = r;
+  runEntry = entry;
+  lastTailSeg = tailSegOf(r);
+  occupied = new Set();
+  $<HTMLSelectElement>("train").value = t.def.id;
+  $<HTMLInputElement>("speed").max = String(t.def.maxSpeed);
+  $<HTMLInputElement>("speed").min = String(-t.def.maxSpeed);
+  speed = t.def.presetSpeed;
+  running = true;
+  applySpeed();
+  holdTrain(null);
+  syncCourseTrains();
+  updateTrainUi();
+  showInfo();
+  fitShadow();
+  toast(
+    hand.mode === "move"
+      ? `${t.def.label || t.def.id} を移動しました`
+      : `${t.def.label || t.def.id} を置きました（全 ${1 + extras.length} 編成）`,
+  );
 }
 
 /** 既存編成から最も離れた安全な配置位置（headS）をルート上で探す。空きが無ければ null */
@@ -661,15 +837,23 @@ function rebuildAll() {
 /** 先頭の前ガイドの置き場所。コースが決めた「ここから何m」に、編成の長さを足す */
 const headStart = (r: Route, t: Train, at: number) => Math.min(r.length, at + t.length);
 
-/** 口の名前から、その口を持つ最初の部品を探す */
-function entryFor(port: string): Run["entry"] {
+/** 口の名前（または保存された部品番号）から、その口を持つ部品を探す */
+function entryFor(port: string, preferredPiece?: number): Run["entry"] {
+  if (
+    preferredPiece !== undefined &&
+    preferredPiece >= 0 &&
+    preferredPiece < course!.pieces.length &&
+    catalog.get(course!.pieces[preferredPiece]!.kind)?.ports.some((q) => q.id === port)
+  ) {
+    return { piece: preferredPiece, port };
+  }
   const piece = course!.pieces.findIndex((p) => catalog.get(p.kind)?.ports.some((q) => q.id === port));
   return piece < 0 ? undefined : { piece, port };
 }
 
 /** 2本目以降の編成を、コースの指定どおりに並列で置く */
 async function spawnExtras() {
-  const specs = (course?.trains ?? []) as { train: string; at: number; port: string; lane?: string }[];
+  const specs = (course?.trains ?? []) as { train: string; at: number; port: string; piece?: number; lane?: string }[];
   const gen = renderGeneration;
   extras = [];
   const loaded = await Promise.all(
@@ -681,7 +865,7 @@ async function spawnExtras() {
   if (gen !== renderGeneration) return;
   for (const { spec, train: t } of loaded) {
     // 口が見つからなければ、既定の始点から数える（同じ線の上に並ぶ）
-    const entry = entryFor(spec.port);
+    const entry = entryFor(spec.port, spec.piece);
     const lane = spec.lane ?? "";
     const r = buildRoute(catalog, course!.pieces, entry, undefined, undefined, lane);
     if (!r.points.length) continue;
@@ -1325,6 +1509,7 @@ function selectEnd(end: OpenPort | null) {
 }
 
 function selectKind(kind: string | null) {
+  if (kind && trainHand) holdTrain(null);
   if (kind && propsLayer.kind) holdProp(null);
   if (selectedPiece !== null && kind) {
     void replacePiece(kind);
@@ -1402,6 +1587,7 @@ function snapshot() {
 /** 棚で町なみを持つ・手放す。持つとレールの選択は外れる */
 function holdProp(id: string | null) {
   if (id) {
+    holdTrain(null);
     selectedKind = null;
     shelf.select(null);
     freeAim = null;
@@ -1618,6 +1804,23 @@ renderer.domElement.addEventListener("pointerup", (e) => {
   raycaster.setFromCamera(ndc, camera);
 
   if (mode === "build") {
+    // 電車を持っていれば、好きなレールをタップして仮置き・確定する
+    if (trainHand) {
+      if (trainGhost && raycaster.intersectObject(trainGhost.train.root, true).length) {
+        void confirmTrainPlace();
+        return;
+      }
+      const pickedPart = pickPieceObject(e.clientX, e.clientY, isTouch);
+      if (pickedPart) {
+        const idx = pickedPart.obj.userData.index as number;
+        if (trainAim && trainAim.piece === idx) trainAim.candIdx++;
+        else trainAim = { piece: idx, candIdx: 0 };
+        void updateTrainGhost();
+      } else {
+        toast("電車を置きたいレールをタップしてください");
+      }
+      return;
+    }
     // 優先順は ゴースト（確定） > 端（選択、画面距離で吸着）
     if (ghost && raycaster.intersectObject(ghost, true).length) {
       void confirmPlace();
@@ -1810,6 +2013,7 @@ function setMode(next: "build" | "drive") {
   selectedPiece = null;
   paintSelection();
   propsLayer.clearHand();
+  holdTrain(null);
   setShelfOpen(false);
   closePopups();
   document.body.classList.toggle("drive", mode === "drive");
@@ -1879,12 +2083,14 @@ async function startCourse() {
   freeAim = null;
   freeLevel = 0;
   freeTheta = facingTheta();
-  runLane = (course!.trains as { lane?: string }[] | undefined)?.[0]?.lane ?? "";
+  const firstSpec = (course!.trains as { train?: string; port?: string; piece?: number; lane?: string }[] | undefined)?.[0];
+  runLane = firstSpec?.lane ?? "";
+  runEntry = firstSpec?.piece !== undefined && firstSpec.port ? entryFor(firstSpec.port, firstSpec.piece) : undefined;
   $<HTMLSelectElement>("lane").value = runLane;
-  route = buildRoute(catalog, course!.pieces, undefined, undefined, undefined, runLane);
+  route = buildRoute(catalog, course!.pieces, runEntry, undefined, undefined, runLane);
   if (route.notes.length) console.warn("ルート", route.notes);
   // 1本目の電車の種類はコースが決める（棚の選択はそのあとで変えられる）
-  const first = (course!.trains as { train: string }[] | undefined)?.[0]?.train;
+  const first = firstSpec?.train;
   const trainSelect = $<HTMLSelectElement>("train");
   if (first && [...trainSelect.options].some((o) => o.value === first)) trainSelect.value = first;
   await Promise.all([renderPieces(), showTrain().then(() => spawnExtras())]);
@@ -1976,8 +2182,7 @@ async function main() {
       void showTrain(true);
     },
     onAddTrain: (id) => {
-      setShelfOpen(false);
-      void addTrain(id);
+      holdTrain(id, "add");
     },
     available: (kind) => isPartAvailable(kind),
   });
@@ -2037,9 +2242,20 @@ async function main() {
   for (const def of bundle.trains) trainSelect.add(new Option(def.label || def.id, def.id));
   trainSelect.value = "CommuterCream";
   trainSelect.addEventListener("change", () => void showTrain(true));
-  $("addTrain").onclick = () => void addTrain();
+  $("addTrain").onclick = () => holdTrain(trainSelect.value, "add");
+  $("moveTrain").onclick = () => {
+    if (train) holdTrain(train.def.id, "move");
+  };
   $("menuNextTrain").onclick = () => nextTrain();
   $("removeTrain").onclick = () => removeCurrentTrain();
+  $("placeTrainHere").onclick = () => {
+    if (selectedPiece === null) return;
+    const idx = selectedPiece;
+    const id = trainSelect.value || "CommuterCream";
+    holdTrain(id, "add");
+    trainAim = { piece: idx, candIdx: 0 };
+    void updateTrainGhost();
+  };
 
   const guideList = $("guideList");
   for (const [k, v] of GUIDE) {
@@ -2070,11 +2286,15 @@ async function main() {
   $("closeShelf").onclick = () => setShelfOpen(false);
 
   $("placeConfirm").onclick = () => {
-    if (ghost && ghostPiece) void confirmPlace();
+    if (trainGhost) void confirmTrainPlace();
+    else if (ghost && ghostPiece) void confirmPlace();
     else if (propsLayer.kind && propsLayer.aimAt) confirmProp();
   };
   $("placeRotate").onclick = () => {
-    if (propsLayer.kind || propsLayer.picked !== null) propsLayer.turn(1);
+    if (trainHand && trainAim) {
+      trainAim.candIdx++;
+      void updateTrainGhost();
+    } else if (propsLayer.kind || propsLayer.picked !== null) propsLayer.turn(1);
     else if (selectedKind && !selectedEnd) turnFree(1);
     else {
       placementIdx++;
@@ -2082,6 +2302,7 @@ async function main() {
     }
   };
   $("placeCancel").onclick = () => {
+    holdTrain(null);
     freeAim = null;
     selectedKind = null;
     shelf.select(null);
@@ -2165,6 +2386,7 @@ async function main() {
         freeLevel = Math.max(0, freeLevel + (e.code === "PageUp" ? 1 : -1));
         void updateGhost();
       } else if (e.code === "Escape") {
+        holdTrain(null);
         setShelfOpen(false);
         closePopups();
         freeAim = null;
