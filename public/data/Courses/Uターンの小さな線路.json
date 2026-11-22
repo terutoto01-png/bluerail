@@ -1,0 +1,162 @@
+{
+ "version": 1,
+ "saved": "",
+ "closedLoop": true,
+ "order": 140,
+ "pieces": [
+  {
+   "kind": "UTurn",
+   "position": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "euler": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+   },
+   "state": "",
+   "lift": 0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "PlatformLeft",
+   "position": {
+    "x": -0.833333,
+    "y": 0,
+    "z": 0
+   },
+   "euler": {
+    "x": 0,
+    "y": 180,
+    "z": 0
+   },
+   "state": "",
+   "lift": 0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "PlatformLeft",
+   "position": {
+    "x": -0.833333,
+    "y": 0,
+    "z": 3
+   },
+   "euler": {
+    "x": 0,
+    "y": 180,
+    "z": 0
+   },
+   "state": "",
+   "lift": 0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Straight",
+   "position": {
+    "x": -0.833333,
+    "y": 0,
+    "z": 6
+   },
+   "euler": {
+    "x": 0,
+    "y": 180,
+    "z": 0
+   },
+   "state": "",
+   "lift": 0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "PlatformRight",
+   "position": {
+    "x": 0.833333,
+    "y": 0,
+    "z": 0
+   },
+   "euler": {
+    "x": 0,
+    "y": 180,
+    "z": 0
+   },
+   "state": "",
+   "lift": 0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "PlatformRight",
+   "position": {
+    "x": 0.833333,
+    "y": 0,
+    "z": 3
+   },
+   "euler": {
+    "x": 0,
+    "y": 180,
+    "z": 0
+   },
+   "state": "",
+   "lift": 0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Straight",
+   "position": {
+    "x": 0.833333,
+    "y": 0,
+    "z": 6
+   },
+   "euler": {
+    "x": 0,
+    "y": 180,
+    "z": 0
+   },
+   "state": "",
+   "lift": 0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "UTurn",
+   "position": {
+    "x": 0,
+    "y": 0,
+    "z": 12
+   },
+   "euler": {
+    "x": 0,
+    "y": 180,
+    "z": 0
+   },
+   "state": "",
+   "lift": 0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  }
+ ],
+ "trains": [
+  {
+   "train": "CommuterCyan",
+   "at": 0,
+   "port": "Start",
+   "piece": 0,
+   "lane": ""
+  }
+ ],
+ "props": []
+}
