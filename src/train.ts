@@ -109,6 +109,8 @@ export class Train {
   s = 0;
   speed = 0;
   target = 0;
+  /** 加減速の強さの倍率（マスコンのノッチで変わる）。1 が車両の標準 */
+  rate = 1;
   private cars: Car[] = [];
   private gap = 0.15;
 
@@ -193,7 +195,7 @@ export class Train {
   }
 
   update(route: Route, dt: number) {
-    const a = this.def.acceleration * dt;
+    const a = this.def.acceleration * this.rate * dt;
     this.speed += Math.max(-a, Math.min(a, this.target - this.speed));
     this.s += this.speed * dt;
     // 線の端で止まる。開いた線は両端、投げ縄は手前の端だけ（輪は周回する）。後退でも尻が線から出ない

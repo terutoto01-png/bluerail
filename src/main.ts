@@ -32,6 +32,8 @@ import { createThumbnailer } from "./thumbs";
 import { buildScenery, setSharedEnvironment, toStandard, type Scenery } from "./scenery";
 import { buildSupports, loadPierModels } from "./supports";
 import { Minimap } from "./minimap";
+import { MasconLever, NEUTRAL, NOTCHES, driveBy, notchFor } from "./mascon";
+import { CoursePicker } from "./coursePicker";
 import { PropsLayer } from "./propsLayer";
 import { buildDecorations } from "./decor";
 import { buildWorn, centrePath, loadWorn, seedWornDefs, wearable } from "./decorWorn";
@@ -114,6 +116,9 @@ let train: Train | null = null;
 let mode: "build" | "drive" = "build";
 let running = true;
 let speed = 0;
+/** 見ている編成のマスコンと進む向き（1 = 前、-1 = うしろ） */
+let lever: MasconLever | null = null;
+let dir: 1 | -1 = 1;
 /** 部品の描画グループ。userData.index が course.pieces の番号 */
 let pieceGroups: THREE.Group[] = [];
 /** 分岐レールの状態表示（直進＝緑 / 分岐＝橙） */
@@ -264,12 +269,17 @@ function tick(dt: number) {
   if (!route || !train) return;
   // 前に別の編成が居るなら止まる。目標の速さは全編成で同じ
   // 目標の速さは編成ごと。見ている編成だけ、画面の操作が効く
+  // 見ている編成はマスコンのノッチで加減速する。ほかの編成は覚えている速さで走る
+  const mine = mode === "drive" && lever ? driveBy(lever.notch, train.speed, dir, train.def.maxSpeed) : { target: 0, rate: 1 };
   const all = [
-    { train, route, lane: runLane, want: mode === "drive" && running ? speed : 0 },
-    ...extras.map((r) => ({ train: r.train, route: r.route, lane: r.lane, want: mode === "drive" && r.running ? r.speed : 0 })),
+    { train, route, lane: runLane, want: mine.target, rate: mine.rate },
+    ...extras.map((r) => ({ train: r.train, route: r.route, lane: r.lane, want: mode === "drive" && r.running ? r.speed : 0, rate: 1 })),
   ];
   const blocked = blockedRuns(all);
-  all.forEach((r, i) => (r.train.target = blocked[i] ? 0 : r.want));
+  all.forEach((r, i) => {
+    r.train.target = blocked[i] ? 0 : r.want;
+    r.train.rate = blocked[i] ? 2 : r.rate;
+  });
   stepRun(dt);
   for (const run of extras) withRun(run, () => stepRun(dt));
   if (needAll) {
@@ -306,6 +316,7 @@ let minimapAt = 0;
 
 /** ミニマップと案内（部品を選ぶ促し）を更新する。ミニマップは 10 回/秒で足りる */
 function updateHud(now: number) {
+  if (mode === "drive" && lever) paintMeter();
   if (minimap && course && now - minimapAt > 100) {
     minimapAt = now;
     minimap.draw(catalog, course.pieces, route, train ? train.s : null, open, selectedEnd);
@@ -422,20 +433,31 @@ function clampFocus() {
 }
 
 // --- 速度 ---
+/** 覚えている速さ（speed / running）に合わせて、マスコンのノッチと向きを置き直す */
 function applySpeed() {
-  if (train) train.target = mode === "drive" && running ? speed : 0;
-  $<HTMLButtonElement>("go").textContent = running ? "⏸" : "▶";
-  $<HTMLInputElement>("speed").value = String(speed);
-  $("speedText").textContent = `${speed < 0 ? "後退 " : ""}${Math.abs(speed).toFixed(1)} m/s`;
+  if (!lever) return;
+  dir = speed < 0 ? -1 : 1;
+  lever.set(running ? notchFor(speed, train?.def.maxSpeed ?? 8) : NEUTRAL);
+  paintMeter();
 }
 
-/** 速度は符号付き。正が前進、負が後退 */
-function setSpeed(v: number) {
+/** 速度計（いまの速さの帯と、進む向き） */
+function paintMeter() {
   const max = train?.def.maxSpeed ?? 8;
-  speed = Math.min(Math.max(v, -max), max);
-  if (speed !== 0) running = true;
-  applySpeed();
+  const v = train ? Math.abs(train.speed) : 0;
+  $("meterFill").style.width = `${Math.min(100, (v / max) * 100).toFixed(1)}%`;
+  $("meterText").textContent = `${(v * 10).toFixed(0)}`;
+  $("reverse").textContent = dir === 1 ? "⬆ まえ" : "⬇ うしろ";
+  $("reverse").classList.toggle("back", dir === -1);
 }
+
+/** 見るのをやめる編成に、いまの走りを覚えさせる（止まっていれば止まったまま） */
+function rememberCruise() {
+  if (!train) return;
+  speed = Math.abs(train.speed) > 0.2 ? train.speed : lever?.notch.kind === "power" ? dir * train.def.presetSpeed : 0;
+  running = speed !== 0;
+}
+
 
 // --- 列車 ---
 async function showTrain(keepPosition = false) {
@@ -450,8 +472,6 @@ async function showTrain(keepPosition = false) {
   const at = (course?.trains as { at: number }[] | undefined)?.[0]?.at ?? 0;
   t.place(r, prevS !== null ? Math.min(r.length, Math.max(t.length, prevS)) : headStart(r, t, at));
   lastTailSeg = tailSegOf(r);
-  $<HTMLInputElement>("speed").max = String(t.def.maxSpeed);
-  $<HTMLInputElement>("speed").min = String(-t.def.maxSpeed);
   speed = t.def.presetSpeed;
   running = true;
   applySpeed();
@@ -601,7 +621,7 @@ function updateTrainUi() {
   if (trainLabel) trainLabel.textContent = hasMulti ? `見ている電車（全 ${total} 編成）` : "電車（1編成）";
   const nextBtn = $("nextTrain");
   nextBtn.style.display = hasMulti ? "" : "none";
-  nextBtn.innerHTML = `次の編成 (${total})<span class="key"> [N]</span>`;
+  nextBtn.innerHTML = `🚃 つぎの電車 (${total})<span class="key"> [N]</span>`;
   ($("menuNextTrain") as HTMLButtonElement).disabled = !hasMulti;
   ($("removeTrain") as HTMLButtonElement).disabled = !hasMulti;
 }
@@ -772,8 +792,6 @@ async function confirmTrainPlace() {
   lastTailSeg = tailSegOf(r);
   occupied = new Set();
   $<HTMLSelectElement>("train").value = t.def.id;
-  $<HTMLInputElement>("speed").max = String(t.def.maxSpeed);
-  $<HTMLInputElement>("speed").min = String(-t.def.maxSpeed);
   speed = t.def.presetSpeed;
   running = true;
   applySpeed();
@@ -852,8 +870,6 @@ async function addTrain(trainId?: string) {
   lastTailSeg = tailSegOf(r);
   occupied = new Set();
   $<HTMLSelectElement>("train").value = t.def.id;
-  $<HTMLInputElement>("speed").max = String(t.def.maxSpeed);
-  $<HTMLInputElement>("speed").min = String(-t.def.maxSpeed);
   speed = t.def.presetSpeed;
   running = true;
   applySpeed();
@@ -881,8 +897,6 @@ function removeCurrentTrain() {
   speed = next.speed;
   running = next.running;
   $<HTMLSelectElement>("train").value = train.def.id;
-  $<HTMLInputElement>("speed").max = String(train.def.maxSpeed);
-  $<HTMLInputElement>("speed").min = String(-train.def.maxSpeed);
   applySpeed();
   syncCourseTrains();
   updateTrainUi();
@@ -895,6 +909,7 @@ function removeCurrentTrain() {
 function nextTrain() {
   const next = extras.shift();
   if (!next || !train || !route) return;
+  rememberCruise();
   extras.push({ train, route, lastTailSeg, occupied, entry: runEntry, lane: runLane, speed, running });
   train = next.train;
   route = next.route;
@@ -905,8 +920,6 @@ function nextTrain() {
   speed = next.speed;
   running = next.running;
   $<HTMLSelectElement>("train").value = train.def.id;
-  $<HTMLInputElement>("speed").max = String(train.def.maxSpeed);
-  $<HTMLInputElement>("speed").min = String(-train.def.maxSpeed);
   applySpeed();
   updateTrainUi();
   showInfo();
@@ -1854,8 +1867,6 @@ async function autoAddRandomTrain() {
     lastTailSeg = tailSegOf(route);
     occupied = new Set();
     trainSelect.value = t.def.id;
-    $<HTMLInputElement>("speed").max = String(t.def.maxSpeed);
-    $<HTMLInputElement>("speed").min = String(-t.def.maxSpeed);
     speed = t.def.presetSpeed;
     running = true;
     applySpeed();
@@ -2436,7 +2447,8 @@ function setBuildView(polar: number) {
 }
 
 function renderViewButtons() {
-  const bar = $("topCenter");
+  const bar = $(mode === "build" ? "topCenter" : "driveViews");
+  $(mode === "build" ? "driveViews" : "topCenter").replaceChildren();
   bar.replaceChildren();
   const items = mode === "build" ? BUILD_VIEWS : DRIVE_VIEWS;
   items.forEach((v, i) => {
@@ -2546,7 +2558,7 @@ function setMode(next: "build" | "drive") {
   closePopups();
   document.body.classList.toggle("drive", mode === "drive");
   $("modeLabel").textContent = mode === "build" ? "配置" : "走行";
-  $("modeSwitch").innerHTML = `${mode === "build" ? "走る" : "つくる"}<span class="key"> [Tab]</span>`;
+  $("modeSwitch").innerHTML = `${mode === "build" ? "▶ 走る" : "🔨 つくる"}<span class="key"> [Tab]</span>`;
   ($("undo") as HTMLButtonElement).disabled = mode === "drive";
   rig.set("free");
   renderViewButtons();
@@ -2558,15 +2570,25 @@ function setMode(next: "build" | "drive") {
 }
 
 const GUIDE: [string, string][] = [
-  ["かんたんモード（標準）", "行きたい場所をタップするだけで直線・左右カーブ・坂を自動選択。もう一度タップか「✓」で確定"],
+  ["走る（はじめの画面）", "下のマスコンを P1〜P4 へ動かすと加速、「切」で惰行、B1・B2・非常でブレーキ。止まっているときに「まえ／うしろ」で向きを変えます"],
+  ["コースをえらぶ", "「🗂 コースをえらぶ」から好きなコースを選ぶと、すぐ走り出します"],
+  ["分岐の切り替え", "走っている間に分岐をタップすると、自動 → 固定を切り替えます"],
+  ["つくる", "右上の「🔨 つくる」で、いまのコースを作り替えられます"],
+  ["かんたんモード（つくる）", "行きたい場所をタップするだけで直線・左右カーブ・坂を自動選択。もう一度タップか「✓」で確定"],
   ["自動分岐・合流", "直線をタップ → 伸ばしたい場所（または別の直線）をタップで分岐や合流を自動作成"],
   ["輪にする / 高さ / 電車＋", "「🔄 輪にする」で自動接続。「地上 / 2階」で自動坂。「🚃 電車＋」は空いている路線へランダムな電車を自動配置"],
   ["くわしくモード", "さまざまな線路・駅・踏切・複線・町なみを自由に選べます（いつでも切替可能）"],
   ["カメラ操作", "1本指ドラッグで回転、2本指ピンチ／ドラッグで拡大移動（PC: 右ドラッグ / ホイール / 左ドラッグ）"],
-  ["走行モード", "スライダーで速度調整、分岐タップで自動→固定切替（PC: Tab / Space / R / N）"],
+  ["PC のキー", "Tab: 走る／つくる、← → または ↑ ↓: ノッチ、Space: 非常ブレーキ／発車、R: 向き、N: つぎの電車"],
 ];
 
 // --- コース ---
+/** 上に出すコース名（メニューで選んでいるもの） */
+function paintCourseTitle() {
+  const sel = $<HTMLSelectElement>("course");
+  $("courseTitle").textContent = sel.selectedOptions[0]?.text || "新しいコース";
+}
+
 async function openCourse(name: string) {
   course = await loadCourse(base, name);
   await startCourse();
@@ -2595,6 +2617,7 @@ async function newCourse() {
 }
 
 async function startCourse() {
+  paintCourseTitle();
   route = null;
   train = null;
   extras = [];
@@ -2933,19 +2956,19 @@ async function main() {
   };
   $("modeSwitch").onclick = () => setMode(mode === "build" ? "drive" : "build");
 
-  $("go").addEventListener("click", () => {
-    running = !running;
-    if (running && speed === 0) speed = train?.def.presetSpeed ?? 4;
-    applySpeed();
+  // 進む向き（レバーサー）。走っている間は変えられない
+  $("reverse").addEventListener("click", () => {
+    if (train && Math.abs(train.speed) > 0.05) {
+      toast("止まってから向きを変えよう（ブレーキをかけてね）");
+      return;
+    }
+    dir = dir === 1 ? -1 : 1;
+    paintMeter();
   });
-  // 向きを反転する。止まっている間は前進の既定速度から始める
-  $("reverse").addEventListener("click", () => setSpeed(speed === 0 ? -(train?.def.presetSpeed ?? 4) : -speed));
-  $("speed").addEventListener("input", (e) => setSpeed(Number((e.target as HTMLInputElement).value)));
 
   addEventListener("keydown", (e) => {
     const el = e.target as HTMLElement | null;
     if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
-    const step = train?.def.speedStep ?? 1;
     if (e.code === "Tab") {
       e.preventDefault();
       $("modeSwitch").click();
@@ -3015,15 +3038,37 @@ async function main() {
         }
       }
     } else if (e.code === "Space") {
+      // 走っていれば非常ブレーキ、止まっていれば P2 で出発
       e.preventDefault();
-      $("go").click();
+      if (!lever) return;
+      const moving = (train && Math.abs(train.speed) > 0.05) || lever.notch.kind === "power";
+      lever.set(moving ? 0 : NOTCHES.findIndex((n) => n.id === "P2"), true);
     } else if (e.code === "KeyR") $("reverse").click();
     else if (e.code === "KeyN") nextTrain();
-    else if (e.code === "ArrowUp") setSpeed(speed + step);
-    else if (e.code === "ArrowDown") setSpeed(speed - step);
+    else if (e.code === "ArrowUp" || e.code === "ArrowRight") {
+      e.preventDefault();
+      lever?.set(lever.value + 1, true);
+    } else if (e.code === "ArrowDown" || e.code === "ArrowLeft") {
+      e.preventDefault();
+      lever?.set(lever.value - 1, true);
+    }
   });
 
-  setMode("build");
+  lever = new MasconLever($("mascon"), () => paintMeter());
+  const picker = new CoursePicker($("coursePicker"), {
+    catalog,
+    list: () => [...courseSelect.options].filter((o) => o.value).map((o) => ({ value: o.value, label: o.text })),
+    current: () => courseSelect.value,
+    load: async (value) =>
+      value.startsWith("saved:") ? (loadSaved(value.slice(6))?.pieces ?? null) : (await loadCourse(base, value)).pieces,
+    onPick: (value) => {
+      courseSelect.value = value;
+      courseSelect.dispatchEvent(new Event("change"));
+    },
+  });
+  $("openCourses").onclick = () => picker.open();
+  // 「走る」から始める。つくるは、いまのコースを作り替える入口
+  setMode("drive");
   const initialName = bundle.initialCourseName ?? "定番レイアウト1";
   courseSelect.value = initialName;
   if (bundle.initialCourse) {

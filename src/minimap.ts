@@ -9,7 +9,7 @@ const SIZE = 150;
 const PAD = 16;
 const LINE = "#2f7fe0";
 
-interface Line {
+export interface Line {
   /** 中心線を刻んだ点（Unity の座標 x, z） */
   pts: [number, number][];
 }
@@ -34,33 +34,7 @@ export class Minimap {
 
   /** 部品が変わったときだけ中心線を刻み直す */
   private rebuild(catalog: Catalog, pieces: PieceSave[]) {
-    this.lines = [];
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minZ = Infinity;
-    let maxZ = -Infinity;
-    for (const piece of pieces) {
-      const def = catalog.of(piece);
-      if (!def) continue;
-      for (const path of def.paths) {
-        if (path.lane || (path as { frames?: unknown }).frames) continue; // 車線は中央の道と重なる
-        const pts: [number, number][] = [];
-        for (const q of samplePath(def, path, 0.6)) {
-          const [x, , z] = toWorld(piece, [q.x, q.y, q.z]);
-          pts.push([x, z]);
-          minX = Math.min(minX, x);
-          maxX = Math.max(maxX, x);
-          minZ = Math.min(minZ, z);
-          maxZ = Math.max(maxZ, z);
-        }
-        this.lines.push({ pts });
-      }
-    }
-    if (minX === Infinity) {
-      this.bounds = { minX: -10, maxX: 10, minZ: -10, maxZ: 10 };
-      return;
-    }
-    this.bounds = { minX, maxX, minZ, maxZ };
+    ({ lines: this.lines, bounds: this.bounds } = traceCourse(catalog, pieces));
   }
 
   /** 毎フレーム呼んでよい。部品が変わっていなければ線は刻み直さない */
@@ -130,5 +104,64 @@ export class Minimap {
       ctx.stroke();
       ctx.restore();
     }
+  }
+}
+
+/** 真上から見た線路の中心線（車線は除く）と、その範囲 */
+export function traceCourse(catalog: Catalog, pieces: PieceSave[]) {
+  const lines: Line[] = [];
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const piece of pieces) {
+    const def = catalog.of(piece);
+    if (!def) continue;
+    for (const path of def.paths) {
+      if (path.lane || (path as { frames?: unknown }).frames) continue; // 車線は中央の道と重なる
+      const pts: [number, number][] = [];
+      for (const q of samplePath(def, path, 0.6)) {
+        const [x, , z] = toWorld(piece, [q.x, q.y, q.z]);
+        pts.push([x, z]);
+        minX = Math.min(minX, x);
+        maxX = Math.max(maxX, x);
+        minZ = Math.min(minZ, z);
+        maxZ = Math.max(maxZ, z);
+      }
+      lines.push({ pts });
+    }
+  }
+  const bounds = minX === Infinity ? { minX: -10, maxX: 10, minZ: -10, maxZ: 10 } : { minX, maxX, minZ, maxZ };
+  return { lines, bounds };
+}
+
+/** コースの小さな見取り図を canvas へ描く（コース選びのカード用）。向きはミニマップと同じ */
+export function drawCourseThumb(canvas: HTMLCanvasElement, catalog: Catalog, pieces: PieceSave[], w: number, h: number) {
+  const dpr = Math.min(devicePixelRatio, 2);
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d")!;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const { lines, bounds } = traceCourse(catalog, pieces);
+  const pad = 10;
+  const bw = Math.max(bounds.maxX - bounds.minX, 6);
+  const bd = Math.max(bounds.maxZ - bounds.minZ, 6);
+  const s = Math.min((w - pad * 2) / bw, (h - pad * 2) / bd);
+  const cx = (bounds.minX + bounds.maxX) / 2;
+  const cz = (bounds.minZ + bounds.maxZ) / 2;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = LINE;
+  ctx.lineWidth = 2.5;
+  for (const line of lines) {
+    ctx.beginPath();
+    line.pts.forEach(([x, z], i) => {
+      const px = w / 2 + (x - cx) * s;
+      const py = h / 2 - (z - cz) * s;
+      if (i) ctx.lineTo(px, py);
+      else ctx.moveTo(px, py);
+    });
+    ctx.stroke();
   }
 }
