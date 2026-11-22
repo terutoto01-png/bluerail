@@ -1,0 +1,27 @@
+{
+  "id": "DoubleWideLeft",
+  "label": "複線幅広左",
+  "categories": ["Double"],
+  "order": 450,
+  "model": "Rails/DoubleWideLeft/Track_Double_Wide_Left",
+  "mirror": "DoubleWideRight",
+  "flip": "DoubleWideRight",
+  "action": "point",
+  "leverAngle": 52.0,
+  "ports": [
+    { "id": "Start",  "face": "a", "position": [-0.833333, 0, 0],       "euler": [0, 0, 0] },
+    { "id": "Start2", "face": "a", "position": [0.833333, 0, 0],        "euler": [0, 0, 0] },
+    { "id": "End",    "face": "b", "position": [-0.833333, 0, -7.5],    "euler": [0, 0, 0] },
+    { "id": "End2",   "face": "b", "position": [2.166667, 0, -7.5],     "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through",  "from": "Start",  "to": "End",
+      "segments": [ { "length": 7.5, "turn": 0 } ] },
+    { "id": "through2", "from": "Start2", "to": "End2",
+      "segments": [ { "length": 3.828520, "turn": -1, "radius": 10.880208 },
+                    { "length": 3.828520, "turn": 1,  "radius": 10.880208 } ] },
+    { "id": "cross",    "from": "Start",  "to": "End2",
+      "segments": [ { "length": 4.138007, "turn": -1, "radius": 5.437500 },
+                    { "length": 4.138007, "turn": 1,  "radius": 5.437500 } ] }
+  ]
+}

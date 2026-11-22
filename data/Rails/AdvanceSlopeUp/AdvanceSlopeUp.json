@@ -1,0 +1,18 @@
+{
+  "id": "AdvanceSlopeUp",
+  "label": "スリム 坂のぼり ↗",
+  "categories": ["Advance"],
+  "order": 640,
+  "model": "Rails/AdvanceSlopeUp/Track_Advance_Slope_Up",
+  "mirror": "AdvanceSlopeDown",
+  "flip": "AdvanceSlopeUp",
+  "climbs": true,
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],          "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [0, 0.416667, -6], "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 6.014450, "turn": 0, "run": 6.0 } ] }
+  ]
+}

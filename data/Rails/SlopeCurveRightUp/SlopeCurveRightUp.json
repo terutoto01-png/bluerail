@@ -1,0 +1,18 @@
+{
+  "id": "SlopeCurveRightUp",
+  "label": "坂カーブ右のぼり ↗",
+  "categories": ["Level"],
+  "order": 330,
+  "model": "Rails/SlopeCurveRightUp/Track_Slope_Curve_Right_Up",
+  "mirror": "SlopeCurveLeftDown",
+  "flip": "SlopeCurveLeftUp",
+  "climbs": true,
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0], "euler": [0, 0, 0] },
+    { "id": "End", "face": "b", "position": [-1.757359, 0.416667, -4.242640], "euler": [0, 45, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 4.734420, "turn": 1, "run": 4.712389, "radius": 6.0 } ] }
+  ]
+}

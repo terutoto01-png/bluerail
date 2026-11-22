@@ -1,0 +1,18 @@
+{
+  "id": "BuildingLarge",
+  "label": "ビル 大",
+  "at": "free",
+  "byHand": true,
+  "build": "block",
+  "size": [
+    3.0,
+    3.0
+  ],
+  "height": 5.83333,
+  "storey": 0.83333,
+  "colours": [
+    "scenery.town.wall2",
+    "scenery.town.roof",
+    "scenery.town.window"
+  ]
+}

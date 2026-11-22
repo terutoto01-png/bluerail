@@ -1,0 +1,20 @@
+{
+  "id": "FlexRail",
+  "label": "曲がるレール 〜",
+  "categories": ["Basic"],
+  "order": 170,
+  "model": "Rails/FlexRail/Track_Flex_Node",
+  "mirror": "FlexRail",
+  "flip": "FlexRail",
+  "action": "flex",
+  "flexNodeLength": 0.75,
+  "flexMinRadius": 3.0,
+  "flexMaxLength": 60.0,
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0], "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [0, 0, 0], "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End", "segments": [] }
+  ]
+}

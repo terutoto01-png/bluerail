@@ -1,0 +1,17 @@
+{
+  "id": "QuarterStraight",
+  "label": "1/4直線 →",
+  "categories": ["Basic"],
+  "order": 130,
+  "model": "Rails/QuarterStraight/Track_Straight_Quarter",
+  "mirror": "QuarterStraight",
+  "flip": "QuarterStraight",
+  "action": "",
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],    "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [0, 0, -1.5], "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End", "segments": [ { "length": 1.5, "turn": 0 } ] }
+  ]
+}

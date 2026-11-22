@@ -1,0 +1,55 @@
+{
+  "id": "ElevatedLeft",
+  "label": "高架左カーブ",
+  "categories": ["Level"],
+  "order": 370,
+  "model": "Rails/ElevatedLeft/Track_Elevated_Curve_Left",
+  "mirror": "ElevatedRight",
+  "flip": "ElevatedRight",
+  "action": "",
+  "decorations": ["Catenary"],
+  "ports": [
+    {
+      "id": "Start",
+      "face": "a",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "End",
+      "face": "b",
+      "position": [
+        1.757359,
+        0,
+        -4.24264
+      ],
+      "euler": [
+        0,
+        315,
+        0
+      ]
+    }
+  ],
+  "paths": [
+    {
+      "id": "through",
+      "from": "Start",
+      "to": "End",
+      "segments": [
+        {
+          "length": 4.712389,
+          "turn": -1,
+          "radius": 6.0
+        }
+      ]
+    }
+  ]
+}

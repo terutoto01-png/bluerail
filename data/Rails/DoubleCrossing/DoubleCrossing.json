@@ -1,0 +1,114 @@
+{
+  "id": "DoubleCrossing",
+  "label": "複線踏切",
+  "categories": [
+    "Gimmick"
+  ],
+  "order": 515,
+  "model": "Rails/DoubleCrossing/Track_DoubleCrossing",
+  "mirror": "DoubleCrossing",
+  "flip": "DoubleCrossing",
+  "action": "crossing",
+  "gateAt": 3.0,
+  "gateWarn": 12.0,
+  "gateSeconds": 0.9,
+  "gates": [
+    {
+      "pivot": "Gate_Pivot_A",
+      "child": "Gate A",
+      "angle": -90.0
+    },
+    {
+      "pivot": "Gate_Pivot_B",
+      "child": "Gate B",
+      "angle": 90.0
+    }
+  ],
+  "lamps": [
+    "Lamp_A",
+    "Lamp_B"
+  ],
+  "lampBlink": 0.5,
+  "ports": [
+    {
+      "id": "Start",
+      "face": "a",
+      "position": [
+        -0.833333,
+        0,
+        0
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "Start2",
+      "face": "a",
+      "position": [
+        0.833333,
+        0,
+        0
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "End",
+      "face": "b",
+      "position": [
+        -0.833333,
+        0,
+        -6
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "End2",
+      "face": "b",
+      "position": [
+        0.833333,
+        0,
+        -6
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paths": [
+    {
+      "id": "through",
+      "from": "Start",
+      "to": "End",
+      "segments": [
+        {
+          "length": 6.0,
+          "turn": 0
+        }
+      ]
+    },
+    {
+      "id": "through2",
+      "from": "Start2",
+      "to": "End2",
+      "segments": [
+        {
+          "length": 6.0,
+          "turn": 0
+        }
+      ]
+    }
+  ]
+}

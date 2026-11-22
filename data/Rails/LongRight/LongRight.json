@@ -1,0 +1,18 @@
+{
+  "id": "LongRight",
+  "label": "2倍右カーブ",
+  "categories": ["Basic"],
+  "order": 155,
+  "model": "Rails/LongRight/Track_Curve_Right_90",
+  "mirror": "LongLeft",
+  "flip": "LongLeft",
+  "action": "",
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],        "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [-6.0, 0, -6.0], "euler": [0, 90, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 9.424778, "turn": 1, "radius": 6.0 } ] }
+  ]
+}

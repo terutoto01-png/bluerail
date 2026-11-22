@@ -1,0 +1,23 @@
+{
+  "id": "DoublePointRight",
+  "label": "単線複線ポイント右",
+  "categories": ["Point", "Double"],
+  "order": 445,
+  "model": "Rails/DoublePointRight/Track_DoublePoint_Right",
+  "mirror": "DoublePointLeft",
+  "flip": "DoublePointLeft",
+  "action": "point",
+  "leverAngle": 52.0,
+  "ports": [
+    { "id": "Start",  "face": "a", "position": [0, 0, 0],             "euler": [0, 0, 0] },
+    { "id": "End",    "face": "b", "position": [-1.666667, 0, -6],    "euler": [0, 0, 0] },
+    { "id": "End2",   "face": "b", "position": [0, 0, -6],            "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End2",
+      "segments": [ { "length": 6.0, "turn": 0 } ] },
+    { "id": "branch",  "from": "Start", "to": "End",
+      "segments": [ { "length": 3.152015, "turn": 1,  "radius": 5.816667 },
+                    { "length": 3.152015, "turn": -1, "radius": 5.816667 } ] }
+  ]
+}

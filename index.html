@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>つなげて！青レール！</title>
+<meta name="description" content="ブラウザ上で青いレールをつなげて電車を走らせる 3D レイアウトシミュレーター">
+<meta property="og:title" content="つなげて！青レール！">
+<meta property="og:description" content="ブラウザ上で青いレールをつなげて電車を走らせる 3D レイアウトシミュレーター">
+<meta property="og:type" content="website">
+<link rel="icon" href="./favicon.svg" type="image/svg+xml">
+<style>:root{--surface:#fffef9;--ink:#273a35;--selected:#e2eadd;--primary:#295a46;--on-primary:#fffef9;--part-selected:#f5df91;--secondary:#4c5a52;--danger:#b53a2e;--danger-bg:#fceae8;--shadow:#273a3524;--font:"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;--safe-t:env(safe-area-inset-top,0px);--safe-b:env(safe-area-inset-bottom,0px);--safe-l:env(safe-area-inset-left,0px);--safe-r:env(safe-area-inset-right,0px)}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{width:100%;height:100dvh;font-family:var(--font);color:var(--ink);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overscroll-behavior:none;background:#d6bd98;margin:0;font-size:16px;overflow:hidden}input,textarea{-webkit-user-select:text;user-select:text}canvas{touch-action:none;display:block}button,select{font:inherit;color:inherit}button{cursor:pointer;touch-action:manipulation;background:0 0;border:0;padding:0}button:disabled{color:var(--secondary);opacity:.4;cursor:default}.card{background:var(--surface);box-shadow:0 2px 10px var(--shadow);border-radius:12px;position:fixed}.bar{align-items:center;gap:4px;min-height:44px;padding:4px 6px;display:flex}.bar button,.bar .mode{white-space:nowrap;border-radius:8px;justify-content:center;align-items:center;gap:4px;min-height:36px;padding:0 12px;display:inline-flex}.bar button:hover:not(:disabled){background:var(--selected)}.bar button:active:not(:disabled){transform:scale(.97)}.bar .mode{font-weight:700}.bar .mode:before{content:"";background:var(--part-selected);border-radius:50%;width:6px;height:6px;margin-right:4px}.seg button.on{background:var(--part-selected);font-weight:700}#topLeft{top:calc(14px + var(--safe-t));left:calc(14px + var(--safe-l))}#topCenter{top:calc(14px + var(--safe-t));left:50%;transform:translate(-50%)}#topRight{top:calc(14px + var(--safe-t));right:calc(14px + var(--safe-r));gap:10px;display:flex;position:fixed}#topRight .card{position:static}#guide{min-height:44px;padding:0 14px}#modeSwitch{background:var(--primary);min-height:44px;color:var(--on-primary);box-shadow:0 2px 10px var(--shadow);border-radius:12px;padding:0 18px;font-weight:700}#modeSwitch:active{transform:scale(.97)}#buildDock{left:50%;bottom:calc(14px + var(--safe-b));width:min(760px,calc(100vw - 24px - var(--safe-l) - var(--safe-r)));pointer-events:none;z-index:20;flex-direction:column;align-items:center;gap:8px;display:flex;position:fixed;transform:translate(-50%)}#buildDock>*{pointer-events:auto}body.drive #buildDock,body.shelf-open #buildDock{display:none}#actionBar{flex-wrap:wrap;justify-content:center;gap:6px;padding:5px 8px;display:none;position:static}body.has-action #actionBar{display:flex}#placeConfirm{background:var(--primary);color:var(--on-primary);min-height:40px;padding:0 18px;font-weight:700}#placeConfirm:hover:not(:disabled){background:#224c3b}#placeConfirm.blocked{background:var(--danger-bg);color:var(--danger)}#placeRotate,#levUp,#levDown{background:var(--selected);min-height:40px;padding:0 14px;font-weight:600}#placeCancel{color:var(--secondary);min-width:40px;min-height:40px}#levUp,#levDown{display:none}body.free-hand #levUp,body.free-hand #levDown{display:inline-flex}#quickDock{align-items:center;gap:6px;width:100%;padding:6px 8px;display:flex;position:static}body.picked #quickDock,body.easy-mode #quickDock{display:none}#toEasyBtn{background:var(--part-selected);height:62px;color:var(--ink);white-space:nowrap;border-radius:10px;flex-direction:column;flex:none;justify-content:center;align-items:center;gap:2px;padding:0 11px;font-size:12px;font-weight:700;display:flex}#toEasyBtn:hover{filter:brightness(.96)}#easyDock{flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;width:auto;max-width:100%;padding:6px 8px;display:none;position:static}body.easy-mode #easyDock{display:flex}#easyDock .seg{background:#e2eadda6;border-radius:9px;gap:2px;padding:2px;display:inline-flex}#easyDock .seg button{white-space:nowrap;border-radius:7px;min-height:38px;padding:0 11px;font-size:13px;font-weight:700}#easyDock .seg button.on{background:var(--primary);color:var(--on-primary)}#easyDock .levelCtl{background:var(--selected);border-radius:9px;align-items:center;gap:2px;padding:2px;display:inline-flex}#easyDock .levelCtl button{border-radius:7px;min-width:34px;min-height:38px;font-size:14px;font-weight:700}#easyDock .levelCtl button:hover:not(:disabled){background:var(--part-selected)}#easyDock .levelCtl span{text-align:center;white-space:nowrap;min-width:3.4em;padding:0 6px;font-size:13px;font-weight:700}#easyDock>button{background:var(--selected);white-space:nowrap;border-radius:9px;min-height:42px;padding:0 12px;font-size:13px;font-weight:700}#easyDock>button:hover:not(:disabled){background:var(--part-selected)}#easyCloseLoop{background:var(--primary)!important;color:var(--on-primary)!important}#easyCloseLoop:disabled{background:var(--selected)!important;color:var(--secondary)!important}#easyPieceBar{flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;padding:5px 8px;display:none;position:static}body.easy-mode.easy-picked #easyPieceBar{display:flex}#easyPieceBar .hint{color:var(--primary);white-space:nowrap;padding:0 6px;font-size:13px;font-weight:700}#easyPieceBar button{background:var(--selected);white-space:nowrap;border-radius:8px;min-height:38px;padding:0 12px;font-size:13px;font-weight:600}#easyPieceBar button:hover:not(:disabled){background:var(--part-selected)}#easyPieceBar #easyDelete{background:var(--danger-bg);color:var(--danger)}#easyPieceBar #easyPieceCancel{color:var(--secondary);background:0 0;min-width:36px;padding:0 8px}#quickList{scrollbar-width:none;-webkit-overflow-scrolling:touch;flex:1;align-items:center;gap:6px;min-width:0;display:flex;overflow-x:auto}#quickList::-webkit-scrollbar{display:none}.qbtn{white-space:nowrap;background:#e2eadd6b;border-radius:10px;flex-direction:column;flex:none;justify-content:center;align-items:center;gap:2px;min-width:66px;height:62px;padding:4px 8px;font-size:12px;font-weight:600;display:flex}.qbtn:hover:not(:disabled){background:var(--selected)}.qbtn.on{background:var(--part-selected);box-shadow:inset 0 0 0 2px #c89f2c}.qbtn.off{opacity:.38}.qbtn img{object-fit:contain;pointer-events:none;width:34px;height:34px}#toggleShelf{background:var(--primary);height:62px;color:var(--on-primary);white-space:nowrap;border-radius:10px;flex-direction:column;flex:none;justify-content:center;align-items:center;gap:2px;padding:0 14px;font-size:13px;font-weight:700;display:flex}#toggleShelf:hover{background:#224c3b}#pieceDock{flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;width:100%;padding:6px 8px;display:none;position:static}body.picked:not(.easy-mode) #pieceDock{display:flex}#pieceDock button{background:var(--selected);border-radius:9px;min-height:42px;padding:0 12px;font-size:14px;font-weight:600}#pieceDock button:hover:not(:disabled){background:var(--part-selected)}#pieceDock #branchLeft,#pieceDock #branchRight{background:var(--primary);color:var(--on-primary)}#pieceDock #remove{background:var(--danger-bg);color:var(--danger)}#pieceDock #pieceClose{color:var(--secondary);background:0 0;min-width:40px;padding:0 8px}#branchLeft,#branchRight{display:none}body.can-branch #branchLeft,body.can-branch #branchRight{display:inline-flex}#moreMenu{flex-wrap:wrap;justify-content:center;gap:6px;padding:6px 8px;display:none;position:static}#moreMenu.open{display:flex}#moreMenu button{background:var(--selected);border-radius:8px;min-height:40px;padding:0 12px;font-size:14px}#moreMenu button:hover:not(:disabled){background:var(--part-selected)}#shelf{left:50%;bottom:calc(14px + var(--safe-b));width:min(900px,calc(100vw - 24px - var(--safe-l) - var(--safe-r)));z-index:30;flex-direction:column;gap:4px;display:none;position:fixed;transform:translate(-50%)}body.shelf-open:not(.drive) #shelf{display:flex}#shelf .panel{position:static}#shelfHead{justify-content:space-between;align-items:center;gap:6px;padding:4px 8px;display:flex}#groups{flex:1;justify-content:space-around;align-items:center;gap:4px;min-height:40px;display:flex}#groups button{border-radius:8px;min-height:36px;padding:0 16px;font-size:15px;font-weight:700}#groups button.on{background:var(--selected)}#closeShelf{min-width:40px;min-height:36px;color:var(--secondary);border-radius:8px;font-weight:700}#closeShelf:hover{background:var(--selected)}#drawers{scrollbar-width:none;-webkit-overflow-scrolling:touch;gap:4px;padding:8px 10px 0;display:flex;overflow-x:auto}#drawers::-webkit-scrollbar{display:none}#drawers button{white-space:nowrap;border-radius:8px;flex:none;min-height:36px;padding:0 12px;font-size:14px}#drawers button.on{background:var(--part-selected);font-weight:700}#tiles{scrollbar-width:thin;scrollbar-color:var(--primary) var(--selected);-webkit-overflow-scrolling:touch;gap:6px;min-height:118px;padding:8px 10px 10px;display:flex;overflow-x:auto}.tile{cursor:pointer;border-radius:10px;flex-direction:column;flex:0 0 108px;justify-content:center;align-items:center;gap:4px;height:104px;display:flex;position:relative}.tile:hover{background:var(--selected)}.tile.on{background:var(--part-selected)}.tile.off{opacity:.36}.tile img{object-fit:contain;pointer-events:none;width:56px;height:56px}.tile span{white-space:nowrap;text-overflow:ellipsis;max-width:100%;padding:0 4px;font-size:14px;overflow:hidden}.tile .star{color:#fff;background:#e3e4e1;border-radius:50%;width:26px;height:26px;font-size:14px;line-height:26px;position:absolute;top:4px;right:4px}.tile .star.on{background:var(--part-selected);color:#b8860b}.tile.text span{white-space:normal;text-align:center;word-break:break-word;font-size:13px;line-height:1.25}.empty{color:var(--secondary);margin:auto;font-size:15px}#driveDock{left:50%;bottom:calc(14px + var(--safe-b));z-index:20;width:min(640px,calc(100vw - 24px - var(--safe-l) - var(--safe-r)));flex-direction:column;align-items:center;gap:8px;display:none;position:fixed;transform:translate(-50%)}body.drive #driveDock{display:flex}body.drive #shelf,body.drive #topCenter,body.drive #undo{display:none}#driveDock>.card{position:relative}#driveViews{align-self:flex-start}#driveBar{flex-direction:column;gap:8px;width:100%;padding:10px 12px;display:flex}#driveBar .row{align-items:center;gap:8px;width:100%;display:flex}#driveBar button{white-space:nowrap;background:var(--selected);border-radius:10px;min-height:44px;padding:0 12px;font-size:15px;font-weight:700}#driveBar button:hover{filter:brightness(.96)}#reverse.back{background:var(--part-selected)}#nextTrain{margin-left:auto}#mascon{-webkit-user-select:none;user-select:none;flex-direction:column;gap:4px;width:100%;display:flex}#mascon .state{text-align:center;min-height:22px;font-size:16px;font-weight:800}#mascon .state[data-kind=eb],#mascon .state[data-kind=brake]{color:var(--danger)}#mascon .state[data-kind=neutral]{color:var(--secondary)}#mascon .state[data-kind=power]{color:var(--primary)}#mascon .track{cursor:grab;touch-action:none;background:linear-gradient(90deg,#e0675a 0%,#f6cfc9 var(--brake-end),#e7e7e1 var(--brake-end),#e7e7e1 var(--power-start),#cfe8d8 var(--power-start),#3f8f63 100%);border-radius:28px;height:56px;position:relative;box-shadow:inset 0 2px 5px #0000002e}#mascon .track.grab{cursor:grabbing}#mascon .tick{pointer-events:none;background:#273a3547;border-radius:2px;width:4px;height:18px;margin:-9px 0 0 -2px;position:absolute;top:50%}#mascon .knob{pointer-events:none;background:linear-gradient(#4b5a55,#273a35);border:3px solid #fff;border-radius:14px;width:52px;height:64px;margin:-32px 0 0 -26px;transition:left .12s ease-out;position:absolute;top:50%;box-shadow:0 4px 10px #00000059}#mascon .knob:after{content:"";background:#ffffff8c;border-radius:3px;width:6px;margin-left:-3px;position:absolute;top:10px;bottom:10px;left:50%}#mascon .knob[data-kind=eb],#mascon .knob[data-kind=brake]{background:linear-gradient(#d9776b,#b53a2e)}#mascon .knob[data-kind=power]{background:linear-gradient(#4f9c72,#295a46)}#mascon .ends{height:18px;font-size:13px;font-weight:700;position:relative}#mascon .ends span{white-space:nowrap;position:absolute;top:0}#mascon .ends .stop{left:6px}#mascon .ends .keep{left:var(--keep-at);transform:translate(-50%)}#mascon .ends .go{right:6px}#mascon .ends .stop{color:var(--danger)}#mascon .ends .keep{color:var(--secondary)}#mascon .ends .go{color:var(--primary)}#meter{flex:1;align-items:center;gap:8px;min-width:80px;display:flex}#meter .bar{background:#e3e4e1;border-radius:6px;flex:1;height:12px;overflow:hidden}#meter i{background:linear-gradient(90deg,#6cc08b,#295a46);border-radius:6px;width:0;height:100%;display:block}#meter small{color:var(--secondary);font-size:12px;font-weight:700}#meter b{text-align:right;font-variant-numeric:tabular-nums;min-width:2.2em;font-size:18px}#courseTitle{text-overflow:ellipsis;white-space:nowrap;max-width:40vw;padding:0 10px;font-weight:700;display:none;overflow:hidden}body.drive #courseTitle{display:inline}body.drive #topLeft .mode{display:none}#coursePicker{z-index:60;padding:0 12px calc(12px + var(--safe-b));background:#273a3559;justify-content:flex-end;align-items:center;display:none;position:fixed;inset:0}#coursePicker.open{display:flex}#coursePicker .head,#coursePicker .grid{background:var(--surface);width:min(900px,100%)}#coursePicker .head{border-radius:14px 14px 0 0;justify-content:space-between;align-items:center;padding:12px 16px 6px;font-size:18px;display:flex}#coursePicker .close{background:var(--selected);border-radius:10px;min-width:44px;min-height:44px;font-size:18px}#coursePicker{flex-direction:column}#coursePicker .grid{-webkit-overflow-scrolling:touch;border-radius:0 0 14px 14px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;max-height:min(70dvh,620px);padding:8px 16px 16px;display:grid;overflow-y:auto}.courseCard{text-align:center;background:#f3f1e8;border-radius:12px;flex-direction:column;align-items:stretch;gap:6px;padding:8px;display:flex}.courseCard.on{background:var(--part-selected)}.courseCard:hover{filter:brightness(.97)}.courseCard .pic{background:#fff;border-radius:8px;justify-content:center;align-items:center;height:96px;display:flex}.courseCard .pic img{max-width:100%;max-height:100%}.courseCard .pic.blank{color:var(--secondary);font-size:36px}.courseCard span{font-size:14px;font-weight:700;line-height:1.3}.pop{top:calc(68px + var(--safe-t));width:min(360px,calc(100vw - 24px - var(--safe-l) - var(--safe-r)));max-height:calc(100dvh - 100px - var(--safe-t) - var(--safe-b));z-index:40;flex-direction:column;gap:10px;padding:14px 16px;font-size:15px;display:none;overflow-y:auto}.pop.open{display:flex}#menuPanel{left:calc(14px + var(--safe-l))}#guidePanel{right:calc(14px + var(--safe-r))}.pop label{color:var(--secondary);flex-direction:column;gap:4px;font-size:14px;display:flex}.pop select,.pop input[type=text]{background:#fff;border:1px solid #cfd6ca;border-radius:8px;min-height:40px;padding:0 10px;font-size:16px}.pop .row{flex-wrap:wrap;gap:8px;display:flex}.pop .row button{background:var(--selected);border-radius:8px;min-height:40px;padding:0 14px;font-weight:600}.pop .row button:hover{background:var(--part-selected)}.pop dl{grid-template-columns:auto 1fr;gap:6px 12px;margin:0;font-size:14px;display:grid}.pop dt{white-space:nowrap;font-weight:700}.pop dd{color:var(--secondary);margin:0;line-height:1.4}#info{color:var(--secondary);font-size:14px}#minimap{left:calc(14px + var(--safe-l));bottom:calc(104px + var(--safe-b));z-index:10;flex-direction:column;gap:2px;padding:6px 8px 8px;display:flex}body.shelf-open #minimap{bottom:calc(252px + var(--safe-b))}body.drive #minimap{bottom:calc(92px + var(--safe-b))}#minimap span{color:var(--secondary);font-size:12px}#minimap canvas{border-radius:6px;display:block}#prompt{left:50%;top:calc(68px + var(--safe-t));color:var(--surface);pointer-events:none;width:max-content;max-width:calc(100vw - 24px - var(--safe-l) - var(--safe-r));text-align:center;z-index:15;background:#273a35e6;border-radius:12px;padding:7px 14px;font-size:14px;line-height:1.35;display:none;position:fixed;transform:translate(-50%)}body.drive #prompt{display:none!important}#toast{left:50%;top:calc(112px + var(--safe-t));background:var(--ink);color:var(--surface);opacity:0;pointer-events:none;width:max-content;max-width:calc(100vw - 28px - var(--safe-l) - var(--safe-r));text-align:center;z-index:50;border-radius:10px;padding:9px 16px;font-size:14px;line-height:1.35;transition:opacity .2s;position:fixed;transform:translate(-50%)}#toast.show{opacity:1}#credits{color:var(--secondary);border-top:1px solid #e2e6dc;padding-top:8px;font-size:12px;line-height:1.5}#loading{z-index:100;background:#d6bd98eb;justify-content:center;align-items:center;transition:opacity .25s;display:flex;position:fixed;inset:0}#loading.hide{opacity:0;pointer-events:none}#loading .box{background:var(--surface);color:var(--ink);box-shadow:0 4px 20px var(--shadow);text-align:center;border-radius:12px;max-width:min(420px,100vw - 32px);padding:20px 28px}#loading .title{margin-bottom:6px;font-size:20px;font-weight:700}#loading .msg{color:var(--secondary);font-size:15px}@media (width<=1024px){.key,#topLeft .mode{display:none}}@media (pointer:coarse){.key{display:none}.bar button,#groups button{min-height:40px}#drawers button{min-height:38px}}@media (width<=720px){html,body{font-size:15px}.key,#topLeft .mode{display:none}#topLeft{top:calc(8px + var(--safe-t));left:calc(8px + var(--safe-l))}#topRight{top:calc(8px + var(--safe-t));right:calc(8px + var(--safe-r));gap:6px}#guide{min-height:42px;padding:0 11px}#modeSwitch{min-height:42px;padding:0 14px}#topCenter{top:calc(58px + var(--safe-t));left:50%;transform:translate(-50%)}#prompt{top:calc(108px + var(--safe-t));font-size:13px}#toast{top:calc(148px + var(--safe-t))}.pop{top:calc(58px + var(--safe-t))}#menuPanel{left:calc(8px + var(--safe-l))}#guidePanel{right:calc(8px + var(--safe-r))}#minimap{display:none}#buildDock,#shelf{bottom:calc(8px + var(--safe-b));width:calc(100vw - 16px - var(--safe-l) - var(--safe-r))}.qbtn{min-width:60px;height:58px;font-size:11px}.qbtn img{width:30px;height:30px}#toggleShelf,#toEasyBtn{height:58px;padding:0 10px;font-size:12px}#easyDock{gap:4px;padding:5px}#easyDock>button{min-height:36px;padding:0 7px;font-size:11px}#easyDock .seg button{min-height:32px;padding:0 7px;font-size:11px}#easyDock .levelCtl button{min-width:25px;min-height:32px;font-size:12px}#easyDock .levelCtl span{min-width:2.3em;padding:0 2px;font-size:11px}.tile{flex:0 0 92px;height:92px}.tile img{width:46px;height:46px}.tile span{font-size:13px}#driveDock{bottom:calc(8px + var(--safe-b));width:calc(100vw - 16px - var(--safe-l) - var(--safe-r));gap:6px}#driveBar{gap:6px;padding:8px}#driveBar button{padding:0 9px;font-size:13px}#mascon .track{height:50px}#mascon .knob{width:44px;height:56px;margin:-28px 0 0 -22px}#mascon .state{font-size:15px}#meter .bar{display:none}#meter{flex:none;gap:4px;min-width:0}#courseTitle{max-width:34vw;padding:0 6px;font-size:14px}#coursePicker{padding:0 8px calc(8px + var(--safe-b))}#coursePicker .grid{grid-template-columns:repeat(2,1fr);padding:8px 10px 12px}.courseCard .pic{height:80px}}</style>
+  <script type="module" crossorigin src="./assets/index-BstvbLo6.js"></script>
+</head>
+<body>
+<div id="topLeft" class="card bar">
+  <span id="modeLabel" class="mode">配置</span>
+  <button id="menu">メニュー</button>
+  <button id="undo" title="元に戻す (Ctrl+Z)">戻す<span class="key"> [Ctrl+Z]</span></button>
+  <span id="courseTitle"></span>
+</div>
+<div id="topCenter" class="card bar seg"></div>
+<div id="topRight">
+  <button id="guide" class="card" title="操作ガイド (F1)">？<span class="key"> ガイド</span></button>
+  <button id="modeSwitch">走る<span class="key"> [Tab]</span></button>
+</div>
+
+<div id="menuPanel" class="card pop">
+  <label>コース<select id="course"></select></label>
+  <label><span id="trainLabel">電車（1編成）</span><select id="train"></select></label>
+  <div class="row">
+    <button id="addTrain">＋ レールへ追加</button>
+    <button id="moveTrain">この編成を移動</button>
+    <button id="menuNextTrain" disabled>次の編成</button>
+    <button id="removeTrain" disabled>外す</button>
+  </div>
+  <label>保存する名前<input id="saveName" type="text" maxlength="30" placeholder="わたしのコース"></label>
+  <div class="row"><button id="save">この名前で保存</button><button id="export">書き出し</button><button id="import">読み込み</button></div>
+  <input id="importFile" type="file" accept=".json,application/json" hidden>
+  <div id="info"></div>
+  <div id="credits">非公式・無料・広告なし（実在の玩具・鉄道会社とは無関係です）<br>3D: Three.js (MIT)</div>
+</div>
+<div id="guidePanel" class="card pop">
+  <dl id="guideList"></dl>
+</div>
+
+<!-- 配置モードの下部操作ドック -->
+<div id="buildDock">
+  <div id="actionBar" class="card bar">
+    <button id="placeConfirm">✓ ここに置く</button>
+    <button id="placeRotate" title="向き・置き方を変える (C / Q / E)">↻ 向き</button>
+    <button id="levUp" title="1階層上 (PageUp)">▲ 高く</button>
+    <button id="levDown" title="1階層下 (PageDown)">▼ 低く</button>
+    <button id="placeCancel" title="やめる (Esc)">✕</button>
+  </div>
+  <div id="moreMenu" class="card bar">
+    <button id="placeTrainHere">ここへ電車を置く</button>
+    <button id="pickSpan">区間を選ぶ</button>
+    <button id="copyUp">上へ複製</button>
+    <button id="copyNext">続きに複製</button>
+    <button id="tunnel" disabled>トンネル</button>
+    <button id="bridge" disabled>鉄橋</button>
+  </div>
+  <div id="pieceDock" class="card bar">
+    <button id="branchLeft">左へ分ける</button>
+    <button id="branchRight">右へ分ける</button>
+    <button id="remove" disabled>削除</button>
+    <button id="openReplace">差し替え</button>
+    <button id="liftUp">▲ 上げる</button>
+    <button id="liftDown">▼ 下げる</button>
+    <button id="moreBtn">その他 ⋯</button>
+    <button id="pieceClose" title="選択を外す (Esc)">✕</button>
+  </div>
+  <div id="easyPieceBar" class="card bar">
+    <span id="easyPieceHint" class="hint"></span>
+    <button id="easyTrainHere">🚃 ここへ電車</button>
+    <button id="easyDelete">🗑 削除</button>
+    <button id="easyPieceCancel" title="選択を外す (Esc)">✕</button>
+  </div>
+  <div id="easyDock" class="card">
+    <div class="seg" role="group" aria-label="つくり方モード">
+      <button id="styleEasy" class="on">かんたん</button>
+      <button id="styleParts">くわしく</button>
+    </div>
+    <div class="levelCtl" title="目標の高さ（自動で坂をつなぎます）">
+      <button id="easyLevDown" aria-label="低く">▼</button>
+      <span id="easyLevLabel">地上</span>
+      <button id="easyLevUp" aria-label="高く">▲</button>
+    </div>
+    <button id="easyCloseLoop" disabled title="開いた端どうしを自動でつなぎます">🔄 輪にする</button>
+    <button id="easyAddTrain" title="空いている路線へランダムな電車を自動で置きます">🚃 電車＋</button>
+  </div>
+  <div id="quickDock" class="card">
+    <button id="toEasyBtn" title="かんたんモードへ戻る">かんたん<br>へ戻る</button>
+    <div id="quickList"></div>
+    <button id="toggleShelf">パーツ<br>一覧</button>
+  </div>
+</div>
+
+<!-- 引き出し式の全部品棚（ボトムシート） -->
+<div id="shelf">
+  <div class="card panel" id="shelfHead">
+    <div id="groups"></div>
+    <button id="closeShelf" title="棚を閉じる">✕</button>
+  </div>
+  <div class="card panel">
+    <div id="drawers"></div>
+    <div id="tiles"></div>
+  </div>
+</div>
+
+<!-- 運転台（走行モード）。カメラ・マスコン・向き・速度計・コース選び -->
+<div id="driveDock">
+  <div id="driveViews" class="card bar seg"></div>
+  <div id="driveBar" class="card">
+    <div class="row">
+      <div id="mascon" title="マスコン（← → でも動かせます）"></div>
+    </div>
+    <div class="row">
+      <button id="reverse" title="進む向き (R)。止まっているときだけ変えられます">⬆ まえ</button>
+      <div id="meter" title="いまの速さ"><small>はやさ</small><div class="bar"><i id="meterFill"></i></div><b id="meterText">0</b></div>
+      <button id="openCourses" title="コースをえらぶ">🗂 コース</button>
+      <button id="nextTrain" title="見る電車を次へ (N)">🚃 つぎの電車<span class="key"> [N]</span></button>
+    </div>
+  </div>
+</div>
+<div id="coursePicker"></div>
+
+<div id="minimap" class="card"><span>コース全体</span><canvas id="minimapCanvas"></canvas></div>
+<div id="prompt">部品を選んで、線路をつなげる</div>
+<div id="toast"></div>
+<div id="loading" role="status" aria-live="polite">
+  <div class="box">
+    <div class="title">つなげて！青レール！</div>
+    <div class="msg" id="loadingMsg">線路と電車を読み込んでいます…</div>
+  </div>
+</div>
+</body>
+</html>

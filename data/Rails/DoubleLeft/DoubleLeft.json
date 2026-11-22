@@ -1,0 +1,23 @@
+{
+  "id": "DoubleLeft",
+  "label": "複線左カーブ",
+  "categories": ["Double"],
+  "order": 410,
+  "model": "Rails/DoubleLeft/Track_Double_Curve_Left",
+  "mirror": "DoubleRight",
+  "flip": "DoubleRight",
+  "action": "",
+  "decorations": ["CatenaryDouble"],
+  "ports": [
+    { "id": "Start",  "face": "a", "position": [-0.833333, 0, 0],        "euler": [0, 0, 0] },
+    { "id": "Start2", "face": "a", "position": [0.833333, 0, 0],         "euler": [0, 0, 0] },
+    { "id": "End",    "face": "b", "position": [1.412181, 0, -5.421152], "euler": [0, 315, 0] },
+    { "id": "End2",   "face": "b", "position": [2.590693, 0, -4.242640], "euler": [0, 315, 0] }
+  ],
+  "paths": [
+    { "id": "through",  "from": "Start",  "to": "End",
+      "segments": [ { "length": 6.021386, "turn": -1, "radius": 7.666667 } ] },
+    { "id": "through2", "from": "Start2", "to": "End2",
+      "segments": [ { "length": 4.712389, "turn": -1, "radius": 6.000000 } ] }
+  ]
+}

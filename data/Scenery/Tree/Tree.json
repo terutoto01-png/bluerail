@@ -1,0 +1,18 @@
+{
+  "id": "Tree",
+  "label": "木",
+  "at": "free",
+  "byHand": true,
+  "build": "tree",
+  "size": [
+    0.94444,
+    0.94444
+  ],
+  "crown": 0.94444,
+  "height": 1.66667,
+  "member": 0.22222,
+  "colours": [
+    "scenery.town.leaf",
+    "scenery.town.trunk"
+  ]
+}

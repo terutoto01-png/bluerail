@@ -1,0 +1,161 @@
+{
+ "version": 1,
+ "saved": "",
+ "closedLoop": true,
+ "order": 10,
+ "pieces": [
+  {
+   "kind": "Left",
+   "position": {
+    "x": 5.341207880427135e-07,
+    "y": 0.0,
+    "z": 6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 90.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -4.242640465879212,
+    "y": 0.0,
+    "z": 4.242641221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 45.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -6.000000221240075,
+    "y": 0.0,
+    "z": 5.341207893749811e-07
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -4.242641221240074,
+    "y": 0.0,
+    "z": -4.2426404658792105
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 315.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -5.341207881961037e-07,
+    "y": 0.0,
+    "z": -6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 270.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": 4.242640465879212,
+    "y": 0.0,
+    "z": -4.242641221240074
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 225.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": 6.000000221240075,
+    "y": 0.0,
+    "z": -5.341207893749811e-07
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 180.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": 4.242641221240076,
+    "y": 0.0,
+    "z": 4.2426404658792105
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 135.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  }
+ ],
+ "trains": [
+  {
+   "train": "CommuterLime",
+   "at": 0,
+   "port": "Start",
+   "lane": ""
+  }
+ ],
+ "props": []
+}

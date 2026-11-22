@@ -1,0 +1,19 @@
+{
+  "id": "SRight",
+  "label": "S字右",
+  "categories": ["Basic"],
+  "order": 165,
+  "model": "Rails/SRight/Track_S_Right",
+  "mirror": "SLeft",
+  "flip": "SLeft",
+  "action": "",
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],              "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [-1.666667, 0, -6.0],  "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 3.152015, "turn": 1,  "radius": 5.816667 },
+                    { "length": 3.152015, "turn": -1, "radius": 5.816667 } ] }
+  ]
+}

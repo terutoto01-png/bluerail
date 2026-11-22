@@ -1,0 +1,23 @@
+{
+  "id": "PointLeft",
+  "label": "ターンアウト左 Y",
+  "categories": ["Point"],
+  "order": 200,
+  "model": "Rails/PointLeft/Track_Point_Left",
+  "mirror": "PointRight",
+  "flip": "PointRight",
+  "action": "point",
+  "bladeAngle": 13.84,
+  "leverAngle": 52.0,
+  "ports": [
+    { "id": "Start",  "face": "a", "position": [0, 0, 0],                "euler": [0, 0, 0] },
+    { "id": "End",    "face": "b", "position": [0, 0, -6],               "euler": [0, 0, 0] },
+    { "id": "Branch", "face": "c", "position": [1.757359, 0, -4.242641], "euler": [0, 315, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 6.0, "turn": 0 } ] },
+    { "id": "branch",  "from": "Start", "to": "Branch",
+      "segments": [ { "length": 4.712389, "turn": -1, "radius": 6.0 } ] }
+  ]
+}

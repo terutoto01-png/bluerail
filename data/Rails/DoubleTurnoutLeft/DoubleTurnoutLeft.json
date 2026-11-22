@@ -1,0 +1,27 @@
+{
+  "id": "DoubleTurnoutLeft",
+  "label": "複線ターンアウト左 Y",
+  "categories": ["Double"],
+  "order": 470,
+  "model": "Rails/DoubleTurnoutLeft/Track_Double_Turnout_Left",
+  "mirror": "DoubleTurnoutRight",
+  "flip": "DoubleTurnoutRight",
+  "action": "point",
+  "leverAngle": 52.0,
+  "ports": [
+    { "id": "Start",   "face": "a", "position": [-0.833333, 0, 0],         "euler": [0, 0, 0] },
+    { "id": "Start2",  "face": "a", "position": [0.833333, 0, 0],          "euler": [0, 0, 0] },
+    { "id": "End",     "face": "b", "position": [-0.833333, 0, -7.5],      "euler": [0, 0, 0] },
+    { "id": "End2",    "face": "b", "position": [0.833333, 0, -7.5],       "euler": [0, 0, 0] },
+    { "id": "Branch",  "face": "c", "position": [6.0, 0, -6.833333],       "euler": [0, 270, 0] },
+    { "id": "Branch2", "face": "c", "position": [6.0, 0, -5.166667],       "euler": [0, 270, 0] }
+  ],
+  "paths": [
+    { "id": "through",  "from": "Start",  "to": "End",  "segments": [ { "length": 7.5, "turn": 0 } ] },
+    { "id": "branch",   "from": "Start",  "to": "Branch",
+      "segments": [ { "length": 10.733775, "turn": -1, "radius": 6.833333 } ] },
+    { "id": "through2", "from": "Start2", "to": "End2", "segments": [ { "length": 7.5, "turn": 0 } ] },
+    { "id": "branch2",  "from": "Start2", "to": "Branch2",
+      "segments": [ { "length": 8.115781, "turn": -1, "radius": 5.166667 } ] }
+  ]
+}

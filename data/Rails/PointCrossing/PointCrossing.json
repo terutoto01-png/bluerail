@@ -1,0 +1,28 @@
+{
+  "id": "PointCrossing",
+  "label": "交差ポイント",
+  "categories": ["Point"],
+  "order": 240,
+  "model": "Rails/PointCrossing/Track_Point_Crossing",
+  "mirror": "PointCrossing",
+  "flip": "",
+  "action": "point",
+  "leverAngle": 52.0,
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],     "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [0, 0, -6],    "euler": [0, 0, 0] },
+    { "id": "West",  "face": "c", "position": [3, 0, -3],    "euler": [0, 90, 0] },
+    { "id": "East",  "face": "d", "position": [-3, 0, -3],   "euler": [0, 90, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",  "segments": [ { "length": 6.0, "turn": 0 } ] },
+    { "id": "cross",   "from": "West",  "to": "East", "segments": [ { "length": 6.0, "turn": 0 } ] },
+    { "id": "corner-sw", "from": "Start", "to": "West",
+      "segments": [ { "length": 4.712389, "turn": -1, "radius": 3.0 } ] },
+    { "id": "corner-ne", "from": "End", "to": "East",
+      "segments": [ { "length": 4.712389, "turn": -1, "radius": 3.0 } ] }
+  ],
+  "conflicts": [
+    { "a": "through", "b": "cross" }
+  ]
+}

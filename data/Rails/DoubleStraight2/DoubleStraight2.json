@@ -1,0 +1,21 @@
+{
+  "id": "DoubleStraight2",
+  "label": "複線直線 ═",
+  "categories": ["Double"],
+  "order": 400,
+  "model": "Rails/DoubleStraight2/Track_Double_Straight",
+  "mirror": "DoubleStraight2",
+  "flip": "DoubleStraight2",
+  "action": "",
+  "decorations": ["CatenaryDouble"],
+  "ports": [
+    { "id": "Start",  "face": "a", "position": [-0.833333, 0, 0],  "euler": [0, 0, 0] },
+    { "id": "Start2", "face": "a", "position": [0.833333, 0, 0],   "euler": [0, 0, 0] },
+    { "id": "End",    "face": "b", "position": [-0.833333, 0, -6], "euler": [0, 0, 0] },
+    { "id": "End2",   "face": "b", "position": [0.833333, 0, -6],  "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through",  "from": "Start",  "to": "End",  "segments": [ { "length": 6.0, "turn": 0 } ] },
+    { "id": "through2", "from": "Start2", "to": "End2", "segments": [ { "length": 6.0, "turn": 0 } ] }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "id": "AdvanceDoublePointLeft",
+  "label": "スリム 複線ポイント左",
+  "categories": ["Advance"],
+  "order": 630,
+  "model": "Rails/AdvanceDoublePointLeft/Track_Advance_Double_Point_Left",
+  "mirror": "AdvanceDoublePointRight",
+  "flip": "AdvanceDoublePointRight",
+  "action": "point",
+  "lanePoints": true,
+  "leverAngle": 52.0,
+  "ports": [
+    { "id": "Start",  "face": "a", "position": [0, 0, 0],         "euler": [0, 0, 0] },
+    { "id": "End",    "face": "b", "position": [0, 0, -6],        "euler": [0, 0, 0] },
+    { "id": "End2",   "face": "b", "position": [1.666667, 0, -6], "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 6.0, "turn": 0 } ] },
+    { "id": "branch",  "from": "Start", "to": "End2",
+      "segments": [ { "length": 3.152015, "turn": -1, "radius": 5.816667 },
+                    { "length": 3.152015, "turn": 1,  "radius": 5.816667 } ] },
+
+    { "id": "throughL", "from": "Start", "to": "End", "lane": "L",
+      "segments": [ { "length": 6.0, "turn": 0 } ] },
+    { "id": "branchL",  "from": "Start", "to": "End2", "lane": "L",
+      "segments": [ { "length": 3.152015, "turn": -1, "radius": 5.816667 },
+                    { "length": 3.152015, "turn": 1,  "radius": 5.816667 } ] },
+
+    { "id": "throughR", "from": "Start", "to": "End", "lane": "R",
+      "segments": [ { "length": 6.0, "turn": 0 } ] },
+    { "id": "branchR",  "from": "Start", "to": "End2", "lane": "R",
+      "segments": [ { "length": 3.152015, "turn": -1, "radius": 5.816667 },
+                    { "length": 3.152015, "turn": 1,  "radius": 5.816667 } ] }
+  ]
+}

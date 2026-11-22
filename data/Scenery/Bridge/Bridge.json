@@ -1,0 +1,24 @@
+{
+  "id": "Bridge",
+  "label": "鉄橋",
+  "at": "over",
+  "byHand": true,
+  "build": "truss",
+  "covers": 4.0,
+  "skip": [
+    "Station"
+  ],
+  "frames": [
+    -0.63889,
+    0.63889
+  ],
+  "height": 1.66667,
+  "member": 0.22222,
+  "panel": 1.5,
+  "topFrom": 12.91667,
+  "tallHeight": 1.94444,
+  "colours": [
+    "scenery.bridge.red",
+    "scenery.bridge.redTop"
+  ]
+}

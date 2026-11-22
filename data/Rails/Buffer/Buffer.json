@@ -1,0 +1,14 @@
+{
+  "id": "Buffer",
+  "label": "車止め ■",
+  "categories": ["Basic"],
+  "order": 90,
+  "model": "Rails/Buffer/Track_Buffer",
+  "mirror": "Buffer",
+  "flip": "Buffer",
+  "action": "",
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0], "euler": [0, 180, 0] }
+  ],
+  "paths": []
+}

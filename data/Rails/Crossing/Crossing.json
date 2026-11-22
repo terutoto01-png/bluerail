@@ -1,0 +1,75 @@
+{
+  "id": "Crossing",
+  "label": "踏切",
+  "categories": [
+    "Gimmick"
+  ],
+  "order": 510,
+  "model": "Rails/Crossing/Track_NewCrossing",
+  "mirror": "Crossing",
+  "flip": "Crossing",
+  "action": "crossing",
+  "gateAt": 3.0,
+  "gateWarn": 12.0,
+  "gateSeconds": 0.9,
+  "gates": [
+    {
+      "pivot": "Gate_Pivot_A",
+      "child": "Gate A",
+      "angle": -90.0
+    },
+    {
+      "pivot": "Gate_Pivot_B",
+      "child": "Gate B",
+      "angle": 90.0
+    }
+  ],
+  "ports": [
+    {
+      "id": "Start",
+      "face": "a",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "End",
+      "face": "b",
+      "position": [
+        0,
+        0,
+        -6
+      ],
+      "euler": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paths": [
+    {
+      "id": "through",
+      "from": "Start",
+      "to": "End",
+      "segments": [
+        {
+          "length": 6.0,
+          "turn": 0
+        }
+      ]
+    }
+  ],
+  "lamps": [
+    "Lamp_A",
+    "Lamp_B"
+  ],
+  "lampBlink": 0.5
+}

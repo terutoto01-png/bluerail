@@ -1,0 +1,19 @@
+{
+  "id": "SlopeUpOriginal",
+  "label": "坂のぼり ↗",
+  "arrow": "up",
+  "categories": ["Level"],
+  "order": 300,
+  "model": "Rails/SlopeUpOriginal/Track_Slope_Up_Original",
+  "mirror": "SlopeDownOriginal",
+  "flip": "SlopeUpOriginal",
+  "climbs": true,
+  "ports": [
+    { "id": "Start", "face": "a", "position": [0, 0, 0],               "euler": [0, 0, 0] },
+    { "id": "End",   "face": "b", "position": [0, 1.666667, -12],      "euler": [0, 0, 0] }
+  ],
+  "paths": [
+    { "id": "through", "from": "Start", "to": "End",
+      "segments": [ { "length": 12.137761, "turn": 0, "run": 12.0 } ] }
+  ]
+}

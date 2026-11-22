@@ -1,0 +1,19 @@
+{
+  "id": "Forest",
+  "label": "森",
+  "at": "free",
+  "byHand": true,
+  "build": "tree",
+  "clump": 5,
+  "size": [
+    2.45556,
+    2.45556
+  ],
+  "crown": 0.94444,
+  "height": 1.66667,
+  "member": 0.22222,
+  "colours": [
+    "scenery.town.leaf",
+    "scenery.town.trunk"
+  ]
+}

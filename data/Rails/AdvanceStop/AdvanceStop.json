@@ -1,0 +1,60 @@
+{
+ "id": "AdvanceStop",
+ "label": "スリム ストップ ■",
+ "categories": [
+  "Gimmick",
+  "Advance"
+ ],
+ "order": 650,
+ "model": "Rails/AdvanceStop/Track_AdvanceStop",
+ "mirror": "AdvanceStop",
+ "flip": "AdvanceStop",
+ "action": "stop",
+ "leverAngle": 60.0,
+ "stopAt": 3.0,
+ "stopSeconds": 3.0,
+ "stopAlign": "drive",
+ "ports": [
+  {
+   "id": "Start",
+   "face": "a",
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "euler": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "End",
+   "face": "b",
+   "position": [
+    0,
+    0,
+    -6
+   ],
+   "euler": [
+    0,
+    0,
+    0
+   ]
+  }
+ ],
+ "paths": [
+  {
+   "id": "through",
+   "from": "Start",
+   "to": "End",
+   "segments": [
+    {
+     "length": 6.0,
+     "turn": 0
+    }
+   ]
+  }
+ ]
+}

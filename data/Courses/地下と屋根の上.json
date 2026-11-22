@@ -1,0 +1,457 @@
+{
+ "version": 1,
+ "saved": "",
+ "closedLoop": true,
+ "order": 80,
+ "pieces": [
+  {
+   "kind": "Underground",
+   "position": {
+    "x": 6.000000534120787,
+    "y": 0.0,
+    "z": 6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 90.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Underground",
+   "position": {
+    "x": 5.341207867104458e-07,
+    "y": 0.0,
+    "z": 6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 90.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -5.999999465879213,
+    "y": 0.0,
+    "z": 6.000000221240074
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 90.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -10.242640465879212,
+    "y": 0.0,
+    "z": 4.242641221240074
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 45.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -12.000000221240075,
+    "y": 0.0,
+    "z": 5.341207884868027e-07
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -10.242641221240074,
+    "y": 0.0,
+    "z": -4.242640465879212
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 315.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Straight",
+   "position": {
+    "x": -6.0000005341207885,
+    "y": 0.0,
+    "z": -6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 270.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Straight",
+   "position": {
+    "x": -5.341207875986242e-07,
+    "y": 0.0,
+    "z": -6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 270.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": 5.999999465879212,
+    "y": 0.0,
+    "z": -6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 270.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": 10.242640465879212,
+    "y": 0.0,
+    "z": -4.242641221240074
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 225.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": 12.000000221240075,
+    "y": 0.0,
+    "z": -5.341207893749811e-07
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 180.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": 10.242641221240076,
+    "y": 0.0,
+    "z": 4.2426404658792105
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 135.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Straight",
+   "position": {
+    "x": 6.000000534120787,
+    "y": 1.666667,
+    "z": 6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 90.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Straight",
+   "position": {
+    "x": 5.341207867104458e-07,
+    "y": 1.666667,
+    "z": 6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 90.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -5.999999465879213,
+    "y": 1.666667,
+    "z": 6.000000221240074
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 90.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -10.242640465879212,
+    "y": 1.666667,
+    "z": 4.242641221240074
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 45.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -12.000000221240075,
+    "y": 1.666667,
+    "z": 5.341207884868027e-07
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": -10.242641221240074,
+    "y": 1.666667,
+    "z": -4.242640465879212
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 315.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Straight",
+   "position": {
+    "x": -6.0000005341207885,
+    "y": 1.666667,
+    "z": -6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 270.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Straight",
+   "position": {
+    "x": -5.341207875986242e-07,
+    "y": 1.666667,
+    "z": -6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 270.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": 5.999999465879212,
+    "y": 1.666667,
+    "z": -6.000000221240075
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 270.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": 10.242640465879212,
+    "y": 1.666667,
+    "z": -4.242641221240074
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 225.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": 12.000000221240075,
+    "y": 1.666667,
+    "z": -5.341207893749811e-07
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 180.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  },
+  {
+   "kind": "Left",
+   "position": {
+    "x": 10.242641221240076,
+    "y": 1.666667,
+    "z": 4.2426404658792105
+   },
+   "euler": {
+    "x": 0.0,
+    "y": 135.0,
+    "z": 0.0
+   },
+   "state": "",
+   "lift": 0.0,
+   "liftFrom": "",
+   "branchSet": false,
+   "autoFlip": false
+  }
+ ],
+ "trains": [
+  {
+   "train": "CommuterCream",
+   "at": 0,
+   "port": "Start",
+   "piece": 0,
+   "lane": ""
+  },
+  {
+   "train": "ExpressGreen",
+   "at": 12,
+   "port": "Start",
+   "piece": 12,
+   "lane": ""
+  }
+ ],
+ "props": []
+}
